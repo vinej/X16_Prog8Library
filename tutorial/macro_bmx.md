@@ -32,3 +32,25 @@ main {
     }
 }
 ```
+
+## `cx.bmx_load_hires(name, len, device)`
+
+| Field | Details |
+|---|---|
+| Macro | `cx.bmx_load_hires(name, len, device)` |
+| Purpose | load a BMX image into the VERA_2 640x480 8bpp SDRAM bitmap (the `gfx8h` engine) |
+| Input parameters | `name`: filename address; `len`: filename length; `device`: device number (usually 8) |
+| Output parameters | Carry clear on success; carry set with `A` = `BMX_ERR_*` on failure. `bmx_width`/`bmx_height`/`bmx_bpp`/`bmx_palstart`/`bmx_palcount`/`bmx_border` reflect the file. |
+| More info | Like `bmx_load`, but the palette streams into the VERA_2 palette and the pixels stream (via MACPTR) into VERA_2 SDRAM starting at offset 0, rather than into VERA VRAM. Select the hi-res 8bpp mode first with `gfx8h_init`. Rows land 640 bytes apart, so a full-width 640x480 image is a plain contiguous load. |
+| Example | See below. |
+
+```prog8
+%import x16lib
+
+main {
+    sub start() {
+        cx.gfx8h_init()  ; 640x480 @ 8bpp (needs VERA_2)
+        cx.bmx_load_hires(name, len, device)
+    }
+}
+```

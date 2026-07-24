@@ -75,6 +75,7 @@
 "bit_set": "X16_USE_BITS",
 "bit_test": "X16_USE_BITS",
 "bmx_load": "X16_USE_BMX",
+"bmx_load_hires": "X16_USE_BMX",
 "catnib": "X16_USE_BITS",
 "clip_set": "X16_USE_CLIP",
 "clock_get_date_time": "X16_USE_CLOCK",

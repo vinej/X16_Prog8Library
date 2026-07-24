@@ -5,3 +5,9 @@
 /build/
 
 /prog8-sdk/
+
+# user-supplied image inputs / converted outputs
+*.jpg
+*.jpeg
+*.png
+*.bmx

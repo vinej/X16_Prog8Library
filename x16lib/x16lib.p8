@@ -8317,6 +8317,30 @@ cx {
         }}
     }
 
+    sub bmx_load_hires(uword name, ubyte len_, ubyte device) {
+        %asm {{
+        .if BANK_X16_USE_BMX
+            lda $00
+            pha
+            lda #BANK_X16_USE_BMX
+            sta $00
+        .endif
+            lda p8v_name
+            sta $22
+            lda p8v_name+1
+            sta $23
+            lda p8v_len_
+            sta $24
+            lda p8v_device
+            sta $25
+            jsr x16src.bmx_load_hires
+        .if BANK_X16_USE_BMX
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
     ; util/math
     sub rnd_seed(uword seed) {
         %asm {{

@@ -27,6 +27,7 @@ x16c {
     const ubyte BMX_ERR_FORMAT = $2
     const ubyte BMX_ERR_IO = $1
     const ubyte BMX_ERR_PACKED = $3
+    const uword BMX_HIRES_STRIDE = $280
     const uword CBINV = $316
     const uword CHKIN = $FFC6
     const uword CHKOUT = $FFC9

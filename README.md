@@ -135,6 +135,27 @@ Constraints (the honest limits):
   and prog8's own bank use.
 * The companion `BANK<N>.BIN` files must ship alongside the `.PRG`.
 
+## Displaying images (640×480 8bpp)
+
+The X16 can't decode PNG/JPG at runtime, so convert on the PC and load the result.
+`tools/img2bmx.py` (Pillow) turns any image into a BMX file sized for the VERA_2
+640×480 8bpp bitmap; `examples/imgview.p8` shows it with a single library call:
+
+```powershell
+python tools\img2bmx.py photo.jpg build\IMAGE.BMX     # fit + letterbox (--stretch to fill)
+.\build.ps1 examples\imgview.p8 -Run
+```
+
+```prog8
+cx.gfx8h_init()                                   ; 640x480 @ 8bpp (needs -bitmap2)
+cx.bmx_load_hires(&filename, len(filename), 8)    ; palette + 307 KB of pixels, one call
+```
+
+The 307 KB of image data never touches main RAM — it streams straight from disk
+into VERA_2 SDRAM, so the program stays ~3 KB. `cx.bmx_load_hires` requires
+X16_Library ≥ v0.11.6. (Filenames are lowercase in the source on purpose — Prog8's
+PETSCII maps `a-z` to `$41-$5A`, which the KERNAL reads as the upper-case host name.)
+
 ## The call ABI
 
 The wrappers mirror the library's conventions exactly:

@@ -344,14 +344,14 @@ def main():
         for g in allgates:
             f.write(f"BANK_{g} = 0\n")     # 0 = module stays in low RAM
         f.write(".endweak\n")
-    # default include files so a bare `prog8c` (no build.ps1) still compiles
+    # per-build include files: reset to clean defaults (build.ps1 overwrites
+    # them for a specific program). Always rewritten so the committed repo
+    # never carries one program's gate/bank selection.
     for name, body in (("x16lib_gates.inc",   "; enabled X16_USE_* gates (written by build.ps1)\n"),
                        ("x16lib_bankcfg.inc",  "; bank config (written by build.ps1)\n"),
                        ("x16lib_bankaddr.inc", "; banked routine addresses (written by build.ps1)\n"),
                        ("x16lib_bankload.inc", "; bank loader (written by build.ps1)\n")):
-        p = os.path.join(PKG, name)
-        if not os.path.exists(p):
-            open(p, "w", newline="\n").write(body)
+        open(os.path.join(PKG, name), "w", newline="\n").write(body)
     print(f"flattened {nlines} lines; {count} wrappers; "
           f"{len(gated)} routine->gate mappings ({len(set(gated.values()))} distinct gates)")
 
