@@ -137,9 +137,11 @@ Constraints (the honest limits):
 
 ## Displaying images (640×480 8bpp)
 
-The X16 can't decode PNG/JPG at runtime, so convert on the PC and load the result.
+The X16 can't decode images at runtime, so convert on the PC and load the result.
 `tools/img2bmx.py` (Pillow) turns any image into a BMX file sized for the VERA_2
-640×480 8bpp bitmap; `examples/imgview.p8` shows it with a single library call:
+640×480 8bpp bitmap — **any format Pillow reads** (JPG, PNG, WEBP, AVIF, GIF, BMP,
+TIFF, …), plus HEIC/HEIF when `pillow-heif` is installed. `examples/imgview.p8`
+shows it with a single library call:
 
 ```powershell
 python tools\img2bmx.py photo.jpg build\IMAGE.BMX     # fit + letterbox (--stretch to fill)

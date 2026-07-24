@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
 # =====================================================================
-# img2bmx.py -- convert a PNG/JPG (anything Pillow reads) into a BMX v1
-# file for the Commander X16, sized for the 640x480 8bpp VERA_2 bitmap
-# (the gfx8h engine). Load it on the X16 with cx.bmx_load_hires().
+# img2bmx.py -- convert an image into a BMX v1 file for the Commander
+# X16, sized for the 640x480 8bpp VERA_2 bitmap (the gfx8h engine).
+# Load it on the X16 with cx.bmx_load_hires().
 #
-# The X16 has no PNG/JPEG decoder (and decoding those on a 6502 is not
+# Reads ANY format Pillow supports -- JPG, PNG, WEBP, AVIF, GIF, BMP,
+# TIFF, ICO, TGA, PCX, PPM, QOI, and more -- plus HEIC/HEIF when the
+# optional `pillow-heif` package is installed (pip install pillow-heif).
+#
+# The X16 has no image decoder (and decoding these on a 6502 is not
 # practical), so the conversion + 256-colour quantization happen here on
 # the PC; the X16 side is a single bmx_load_hires() call.
 #
-#   python tools/img2bmx.py photo.jpg build/IMAGE.BMX
-#   python tools/img2bmx.py photo.png build/IMAGE.BMX --stretch
+#   python tools/img2bmx.py photo.jpg  build/IMAGE.BMX
+#   python tools/img2bmx.py photo.heic build/IMAGE.BMX   # needs pillow-heif
+#   python tools/img2bmx.py photo.webp build/IMAGE.BMX --stretch
 #
 # BMX v1 layout (see src_acme/storage/bmx.asm):
 #   16-byte header, then palette (2 bytes/entry, VERA GB then R),
@@ -18,10 +23,19 @@
 import sys, struct, argparse
 from PIL import Image
 
+# Optional: register the HEIC/HEIF opener if pillow-heif is available.
+try:
+    import pillow_heif
+    pillow_heif.register_heif_opener()
+except ImportError:
+    pass
+
 W, H = 640, 480
 
 def main():
-    ap = argparse.ArgumentParser(description="PNG/JPG -> X16 BMX (640x480 8bpp)")
+    ap = argparse.ArgumentParser(
+        description="Convert an image (any format Pillow reads; HEIC needs "
+                    "pillow-heif) to an X16 BMX for the 640x480 8bpp bitmap.")
     ap.add_argument("input")
     ap.add_argument("output", help="output .BMX (use an UPPER-CASE 8.3 name for the X16)")
     ap.add_argument("--stretch", action="store_true",
@@ -29,7 +43,13 @@ def main():
     ap.add_argument("--bg", default="0,0,0", help="letterbox colour r,g,b (default 0,0,0)")
     args = ap.parse_args()
 
-    im = Image.open(args.input).convert("RGB")
+    try:
+        im = Image.open(args.input).convert("RGB")
+    except Image.UnidentifiedImageError:
+        hint = ""
+        if args.input.lower().endswith((".heic", ".heif")):
+            hint = "  (HEIC/HEIF needs:  pip install pillow-heif)"
+        sys.exit(f"error: cannot read '{args.input}' -- unsupported image format{hint}")
     if args.stretch:
         im = im.resize((W, H), Image.LANCZOS)
     else:
