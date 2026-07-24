@@ -234,3 +234,42 @@ The library owns ZP `$22-$31`. Prog8's `%zeropage basicsafe` allocates its own
 variables from a free list and generally coexists; if you hit corruption in a
 program that leans heavily on both, use `%zeropage dontuse` (slower, but keeps
 ZP entirely clear for the library).
+
+## Launching the Prog8 compiler
+
+`build.ps1` wraps all of this (it locates a JDK 17+, puts `64tass` on `PATH`, and
+passes `-target cx16 -srcdirs x16lib`), but you can drive `prog8c.jar` directly.
+The compiler needs **Java 17+**, and `64tass` on `PATH` for the final assembly.
+
+```
+java -jar prog8-sdk\prog8c.jar -target cx16 -srcdirs x16lib -out build myprog.p8
+```
+
+A `-target` is **required**. Everything else is optional:
+
+| Option | What it does |
+|---|---|
+| `-target cx16` | compile for the Commander X16 (also: `c64`, `c128`, `pet32`, `virtual`, or a custom target file) — required |
+| `-srcdirs x16lib` | extra `;`-separated directories to search for `%import`ed modules (this repo's wrapper lives in `x16lib`) |
+| `-out build` | write the `.prg`/`.asm` into this directory instead of the current one |
+| `-D NAME=VALUE` | define an assembly symbol (this is how module gates could be forced; `build.ps1` uses generated includes instead) |
+| `-emu` / `-emu2` | auto-start the (alternative) emulator after a successful build |
+| `-check` | parse and type-check only — fast, produces no output |
+| `-noopt` | skip code optimizations (faster build, larger/slower code) |
+| `-asmlist` | also emit an assembler listing file |
+| `-nosourcelines` | omit the original Prog8 lines as comments in the generated `.asm` |
+| `-watch` | continuous mode: recompile on file changes |
+| `-quiet` / `-quietasm` | suppress compiler / assembler chatter |
+| `-warnshadow`, `-warnimplicitcasts` | extra warnings |
+| `-dumpsymbols` / `-dumpvars` | print the program's symbols / variables |
+| `-varshigh N` / `-slabshigh N` | put variables / memory slabs in HIRAM bank `N` |
+| `-breakinstr brk\|stp` | which CPU instruction `%breakpoint` emits |
+| `-version` / `-help` | print the version / full option list |
+
+Run `java -jar prog8-sdk\prog8c.jar -help` for the complete, authoritative list.
+
+> **Note:** compiling directly this way does **not** run `build.ps1`'s gate scan,
+> so `x16lib\x16lib_gates.inc` isn't regenerated — no library modules are enabled
+> and `cx.*` calls won't link. Use `build.ps1`, or write the `X16_USE_* = 1` lines
+> you need into `x16lib\x16lib_gates.inc` yourself first (see the pay-per-use
+> and banking sections above for how the gate includes work).

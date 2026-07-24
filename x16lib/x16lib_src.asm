@@ -7221,25 +7221,19 @@ _gl4l_dx_pos
     stz gl4l_sx+1
 _gl4l_dx_done
 
-    sec
+    sec                         ; dy = -|y1 - y0|, sy = sign (y is 8-bit)
     lda gl4l_y1
     sbc gl4l_y0
-    sta gl4l_ldy
-    lda gl4l_y1+1
-    sbc gl4l_y0+1
-    sta gl4l_ldy+1
     bpl _gl4l_dy_pos
-    sec
-    lda #0
-    sbc gl4l_ldy
+    eor #$FF
+    clc
+    adc #1                      ; absolute value
     sta gl4l_ldy
-    lda #0
-    sbc gl4l_ldy+1
-    sta gl4l_ldy+1
     lda #$FF
     sta gl4l_sy
     bra _gl4l_dy_done
 _gl4l_dy_pos
+    sta gl4l_ldy
     lda #$01
     sta gl4l_sy
 _gl4l_dy_done
@@ -7248,8 +7242,8 @@ _gl4l_dy_done
     sbc gl4l_ldy
     sta gl4l_dy
     lda #0
-    sbc gl4l_ldy+1
-    sta gl4l_dy+1
+    sbc #0
+    sta gl4l_dy+1               ; gl4l_dy = -|dy|, 16-bit signed
 
     clc
     lda gl4l_dx
@@ -7419,14 +7413,14 @@ _gt4l_next_row
 gfx4l_text
     sta bitmap4l_gt4l_lda+1
     stx bitmap4l_gt4l_lda+2
-_gt4l_loop
+gtx4l_gt4l_loop
 bitmap4l_gt4l_lda
     lda $FFFF
-    beq _gt4l_done
+    beq gtx4l_gt4l_done
     bit #%01000000
-    beq _gt4l_code_ok
+    beq gtx4l_gt4l_code_ok
     and #$1F
-_gt4l_code_ok
+gtx4l_gt4l_code_ok
     jsr gfx4l_char
     clc
     lda X16_P0
@@ -7436,10 +7430,10 @@ _gt4l_code_ok
     adc #0
     sta X16_P1
     inc bitmap4l_gt4l_lda+1
-    bne _gt4l_loop
+    bne gtx4l_gt4l_loop
     inc bitmap4l_gt4l_lda+2
-    bra _gt4l_loop
-_gt4l_done
+    bra gtx4l_gt4l_loop
+gtx4l_gt4l_done
     rts
 .endif
 
