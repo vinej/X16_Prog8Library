@@ -455,6 +455,12 @@ it, so read it from the registers/flags/P-block afterwards. Angles are the
 | `cx.adpcm_nibble(code)` | decode one ADPCM nibble |
 | `cx.adpcm_block(src, dst, count)` | decode a block |
 
+**WAV (X16_USE_WAV)**
+
+| Macro | Does |
+|---|---|
+| `cx.wav_parse_header(buf)` | parse a RIFF/WAVE header from a buffer into `wav_format`/`wav_channels`/`wav_rate`/`wav_bits`/`wav_data_off`/`wav_data_len`; → carry set on failure |
+
 **Input (X16_USE_INPUT)**
 
 [Detailed macro reference](macro_input.md)
@@ -686,6 +692,19 @@ it, so read it from the registers/flags/P-block afterwards. Angles are the
 | Macro | Does |
 |---|---|
 | `cx.u16_to_dec(value)` / `cx.u16_to_hex(value)` | format unsigned 16-bit; → A/X = buffer, Y = length |
+| `cx.u8_to_dec(value)` / `cx.u8_to_hex(value)` / `cx.u8_to_bin(value)` | format unsigned 8-bit as decimal / 2 hex / 8 binary digits |
+| `cx.u16_to_bin(value)` | format unsigned 16-bit as 16 binary digits |
+| `cx.s8_to_dec(value)` / `cx.s16_to_dec(value)` | format signed 8/16-bit as decimal with a leading '-' |
+
+**Sort (X16_USE_SORT)**
+
+[Detailed macro reference](macro_sort.md)
+
+| Macro | Does |
+|---|---|
+| `cx.sort_u8(ptr, count)` / `cx.sort_s8(ptr, count)` | sort a block of unsigned / signed bytes in place |
+| `cx.sort_u16(ptr, count)` / `cx.sort_s16(ptr, count)` | sort a block of unsigned / signed words in place |
+| `cx.sort_ptr(ptr, count, cmp)` | sort 2-byte elements with a caller comparator |
 | `cx.dec_to_u16(str, len)` | parse decimal; → P4/5 = value, carry set on bad digit |
 
 **Fixed point (X16_USE_FIXED)**
@@ -788,6 +807,7 @@ it, so read it from the registers/flags/P-block afterwards. Angles are the
 | `cx.str_pattern_match(str, pattern)` | `?`/`*` match → carry |
 | `cx.str_left(src, dst, len)` / `cx.str_right(…)` | copy an end |
 | `cx.str_slice(src, dst, start, len)` | copy a middle run |
+| `cx.str_sort(ptr, count)` | sort an array of string pointers ascending (X16_USE_STRING_SORT) |
 | `cx.str_ltrim(str)` / `cx.str_rtrim(str)` / `cx.str_trim(str)` | trim whitespace in place |
 | `str_isdigit`, `str_lowerchar`, … | character already in `A`; call directly |
 

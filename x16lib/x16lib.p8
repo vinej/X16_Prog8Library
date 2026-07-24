@@ -8761,6 +8761,313 @@ cx {
         return retbit
     }
 
+    ; -> A/X = buffer, Y = length
+    sub u8_to_dec(ubyte value) -> uword {
+        %asm {{
+        .if BANK_X16_USE_NUMBER
+            lda $00
+            pha
+            lda #BANK_X16_USE_NUMBER
+            sta $00
+        .endif
+            lda p8v_value
+            jsr x16src.u8_to_dec
+            sta p8v_ret16
+            stx p8v_ret16+1
+        .if BANK_X16_USE_NUMBER
+            pla
+            sta $00
+        .endif
+        }}
+        return ret16
+    }
+
+    ; -> A/X = buffer, Y = 2
+    sub u8_to_hex(ubyte value) -> uword {
+        %asm {{
+        .if BANK_X16_USE_NUMBER
+            lda $00
+            pha
+            lda #BANK_X16_USE_NUMBER
+            sta $00
+        .endif
+            lda p8v_value
+            jsr x16src.u8_to_hex
+            sta p8v_ret16
+            stx p8v_ret16+1
+        .if BANK_X16_USE_NUMBER
+            pla
+            sta $00
+        .endif
+        }}
+        return ret16
+    }
+
+    ; -> A/X = buffer, Y = 8
+    sub u8_to_bin(ubyte value) -> uword {
+        %asm {{
+        .if BANK_X16_USE_NUMBER
+            lda $00
+            pha
+            lda #BANK_X16_USE_NUMBER
+            sta $00
+        .endif
+            lda p8v_value
+            jsr x16src.u8_to_bin
+            sta p8v_ret16
+            stx p8v_ret16+1
+        .if BANK_X16_USE_NUMBER
+            pla
+            sta $00
+        .endif
+        }}
+        return ret16
+    }
+
+    ; -> A/X = buffer, Y = 16
+    sub u16_to_bin(uword value) -> uword {
+        %asm {{
+        .if BANK_X16_USE_NUMBER
+            lda $00
+            pha
+            lda #BANK_X16_USE_NUMBER
+            sta $00
+        .endif
+            lda p8v_value
+            sta $22
+            lda p8v_value+1
+            sta $23
+            jsr x16src.u16_to_bin
+            sta p8v_ret16
+            stx p8v_ret16+1
+        .if BANK_X16_USE_NUMBER
+            pla
+            sta $00
+        .endif
+        }}
+        return ret16
+    }
+
+    ; -> A/X = buffer, Y = length
+    sub s8_to_dec(ubyte value) -> uword {
+        %asm {{
+        .if BANK_X16_USE_NUMBER
+            lda $00
+            pha
+            lda #BANK_X16_USE_NUMBER
+            sta $00
+        .endif
+            lda p8v_value
+            jsr x16src.s8_to_dec
+            sta p8v_ret16
+            stx p8v_ret16+1
+        .if BANK_X16_USE_NUMBER
+            pla
+            sta $00
+        .endif
+        }}
+        return ret16
+    }
+
+    ; -> A/X = buffer, Y = length
+    sub s16_to_dec(uword value) -> uword {
+        %asm {{
+        .if BANK_X16_USE_NUMBER
+            lda $00
+            pha
+            lda #BANK_X16_USE_NUMBER
+            sta $00
+        .endif
+            lda p8v_value
+            sta $22
+            lda p8v_value+1
+            sta $23
+            jsr x16src.s16_to_dec
+            sta p8v_ret16
+            stx p8v_ret16+1
+        .if BANK_X16_USE_NUMBER
+            pla
+            sta $00
+        .endif
+        }}
+        return ret16
+    }
+
+    ; util/sort  (base pointer + element count; sorts in place)
+    sub sort_u8(uword ptr, uword count) {
+        %asm {{
+        .if BANK_X16_USE_SORT
+            lda $00
+            pha
+            lda #BANK_X16_USE_SORT
+            sta $00
+        .endif
+            lda p8v_ptr
+            sta $22
+            lda p8v_ptr+1
+            sta $23
+            lda p8v_count
+            sta $24
+            lda p8v_count+1
+            sta $25
+            jsr x16src.sort_u8
+        .if BANK_X16_USE_SORT
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub sort_s8(uword ptr, uword count) {
+        %asm {{
+        .if BANK_X16_USE_SORT
+            lda $00
+            pha
+            lda #BANK_X16_USE_SORT
+            sta $00
+        .endif
+            lda p8v_ptr
+            sta $22
+            lda p8v_ptr+1
+            sta $23
+            lda p8v_count
+            sta $24
+            lda p8v_count+1
+            sta $25
+            jsr x16src.sort_s8
+        .if BANK_X16_USE_SORT
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub sort_u16(uword ptr, uword count) {
+        %asm {{
+        .if BANK_X16_USE_SORT
+            lda $00
+            pha
+            lda #BANK_X16_USE_SORT
+            sta $00
+        .endif
+            lda p8v_ptr
+            sta $22
+            lda p8v_ptr+1
+            sta $23
+            lda p8v_count
+            sta $24
+            lda p8v_count+1
+            sta $25
+            jsr x16src.sort_u16
+        .if BANK_X16_USE_SORT
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub sort_s16(uword ptr, uword count) {
+        %asm {{
+        .if BANK_X16_USE_SORT
+            lda $00
+            pha
+            lda #BANK_X16_USE_SORT
+            sta $00
+        .endif
+            lda p8v_ptr
+            sta $22
+            lda p8v_ptr+1
+            sta $23
+            lda p8v_count
+            sta $24
+            lda p8v_count+1
+            sta $25
+            jsr x16src.sort_s16
+        .if BANK_X16_USE_SORT
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub sort_ptr(uword ptr, uword count, uword cmp_) {
+        %asm {{
+        .if BANK_X16_USE_SORT
+            lda $00
+            pha
+            lda #BANK_X16_USE_SORT
+            sta $00
+        .endif
+            lda p8v_ptr
+            sta $22
+            lda p8v_ptr+1
+            sta $23
+            lda p8v_count
+            sta $24
+            lda p8v_count+1
+            sta $25
+            lda p8v_cmp_
+            sta $26
+            lda p8v_cmp_+1
+            sta $27
+            jsr x16src.sort_ptr
+        .if BANK_X16_USE_SORT
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    ; string/strsort
+    sub str_sort(uword ptr, uword count) {
+        %asm {{
+        .if BANK_X16_USE_STRING_SORT
+            lda $00
+            pha
+            lda #BANK_X16_USE_STRING_SORT
+            sta $00
+        .endif
+            lda p8v_ptr
+            sta $22
+            lda p8v_ptr+1
+            sta $23
+            lda p8v_count
+            sta $24
+            lda p8v_count+1
+            sta $25
+            jsr x16src.str_sort
+        .if BANK_X16_USE_STRING_SORT
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    ; audio/wavfile -> carry set on failure; wav_format/channels/rate/bits/data_off/data_len set
+    sub wav_parse_header(uword buf) -> bool {
+        %asm {{
+        .if BANK_X16_USE_WAV
+            lda $00
+            pha
+            lda #BANK_X16_USE_WAV
+            sta $00
+        .endif
+            lda p8v_buf
+            sta $22
+            lda p8v_buf+1
+            sta $23
+            jsr x16src.wav_parse_header
+            lda #0
+            rol  a
+            sta p8v_retbit
+        .if BANK_X16_USE_WAV
+            pla
+            sta $00
+        .endif
+        }}
+        return retbit
+    }
+
     ; util/fixed -> P4..P7 = product
     sub umul16(uword a_, uword b) {
         %asm {{

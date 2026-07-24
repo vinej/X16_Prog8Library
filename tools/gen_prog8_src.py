@@ -143,7 +143,7 @@ false and or not xor as to in step downto void ubyte byte uword word long float
 str bool const struct enum alias inline private call on repeat unroll break
 continue defer len sizeof abs min max sqrt sgn sin cos tan mkword msb lsb peek
 peekw poke pokew rnd rndw swap sort reverse rol ror rol2 ror2 memory clamp divmod
-setlsb setmsb cx cy x16src x16c x16lib main start""".split())
+setlsb setmsb cmp cx cy x16src x16c x16lib main start""".split())
 
 MNEMONICS = set("""adc and asl bcc bcs beq bit bmi bne bpl bra brk bvc bvs clc
 cld cli clv cmp cpx cpy dec dex dey eor inc inx iny jmp jsr lda ldx ldy lsr nop

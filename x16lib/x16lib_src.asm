@@ -1039,6 +1039,7 @@ X16_USE_ZSM_PCM = 0
 X16_USE_PCM = 0
 X16_USE_PCM_STREAM = 0
 X16_USE_ADPCM = 0
+X16_USE_WAV = 0
 X16_USE_INPUT_DEVICES = 0
 X16_USE_INPUT = 0
 X16_USE_KEYBOARD = 0
@@ -1074,12 +1075,14 @@ X16_USE_INT16 = 0
 X16_USE_INT32 = 0
 X16_USE_FLOAT = 0
 X16_USE_DOUBLE = 0
+X16_USE_SORT = 0
 X16_USE_STRINGS = 0
 X16_USE_STRING = 0
 X16_USE_STRING_CTYPE = 0
 X16_USE_STRING_CASE = 0
 X16_USE_STRING_FIND = 0
 X16_USE_STRING_SLICE = 0
+X16_USE_STRING_SORT = 0
 X16_USE_SYSTEM = 0
 X16_USE_IRQ = 0
 X16_USE_CLOCK = 0
@@ -1149,6 +1152,7 @@ xuse_ym = xuse_audio || X16_USE_YM != 0
 xuse_audio_rom = xuse_audio || X16_USE_AUDIO_ROM != 0
 xuse_zsm_pcm = xuse_audio || X16_USE_ZSM_PCM != 0
 xuse_adpcm = xuse_audio || X16_USE_ADPCM != 0
+xuse_wav = xuse_audio || X16_USE_WAV != 0
 xuse_input = xuse_input_devices || X16_USE_INPUT != 0
 xuse_keyboard = xuse_input_devices || X16_USE_KEYBOARD != 0
 xuse_mouse = xuse_input_devices || X16_USE_MOUSE != 0
@@ -1177,11 +1181,12 @@ xuse_int16 = xuse_utilities || X16_USE_INT16 != 0
 xuse_int32 = xuse_utilities || X16_USE_INT32 != 0
 xuse_float = xuse_utilities || X16_USE_FLOAT != 0
 xuse_double = xuse_utilities || X16_USE_DOUBLE != 0
-xuse_string = xuse_strings || X16_USE_STRING != 0
+xuse_sort = xuse_utilities || X16_USE_SORT != 0
 xuse_string_ctype = xuse_strings || X16_USE_STRING_CTYPE != 0
 xuse_string_case = xuse_strings || X16_USE_STRING_CASE != 0
 xuse_string_find = xuse_strings || X16_USE_STRING_FIND != 0
 xuse_string_slice = xuse_strings || X16_USE_STRING_SLICE != 0
+xuse_string_sort = xuse_strings || X16_USE_STRING_SORT != 0
 xuse_clock = xuse_system || X16_USE_CLOCK != 0
 xuse_screen = xuse_video || X16_USE_SCREEN != 0 || xuse_bitmap8l
 xuse_shapes_arc = xuse_graphics || X16_USE_SHAPES_ARC != 0 || xuse_shapes_pie
@@ -1189,6 +1194,7 @@ xuse_zsm = xuse_audio || X16_USE_ZSM != 0 || xuse_zsm_pcm
 xuse_pcm_stream = xuse_audio || X16_USE_PCM_STREAM != 0 || xuse_zsm_pcm
 xuse_serial = xuse_communications || X16_USE_SERIAL != 0 || xuse_serial_zimodem
 xuse_number = xuse_utilities || X16_USE_NUMBER != 0 || xuse_int16
+xuse_string = xuse_strings || X16_USE_STRING != 0 || xuse_string_sort
 xuse_verafx_mult = xuse_verafx || X16_USE_VERAFX_MULT != 0
 xuse_verafx_copy = xuse_verafx || X16_USE_VERAFX_COPY != 0
 xuse_verafx_transp = xuse_verafx || X16_USE_VERAFX_TRANSP != 0
@@ -6569,10 +6575,10 @@ gfx4l_setptr
     lda X16_T3
     sta X16_T1
     stz X16_T2
-    asl
+    asl X16_T0
     rol X16_T1
     rol X16_T2
-    asl
+    asl X16_T0
     rol X16_T1
     rol X16_T2
 
@@ -20801,6 +20807,237 @@ adpcm_steps
 
 ; (end zone)
 .endif
+.if xuse_wav
+; --- inline audio/wavfile.asm ---
+;ACME
+; =====================================================================
+; x16lib :: audio/wavfile.asm -- parse a WAV/RIFF header
+; =====================================================================
+; This file EMITS CODE. Source it exactly once (x16_code.asm does).
+;
+; wav_parse_header reads a RIFF/WAVE header from a memory buffer and
+; publishes the PCM format, so the caller can hand the numbers to the
+; PCM streamer and stream the sample data that follows. Parsing the
+; small header from RAM keeps this independent of how the file is read
+; (LOAD, MACPTR, a bank, ...); the caller streams the bulk data itself.
+;
+; WAV layout:  "RIFF" <size> "WAVE"  then 8-byte-headed chunks; the
+; "fmt " chunk carries the format, the "data" chunk the samples.
+; =====================================================================
+
+; (zone: file scope in 64tass)
+
+wav_format   .byte 0           ; audio format code (1 = PCM)
+wav_channels .byte 0           ; channel count
+wav_rate     .fill 4, 0        ; sample rate, little-endian
+wav_bits     .byte 0           ; bits per sample
+wav_data_off .word 0           ; byte offset of the sample data in the buffer
+wav_data_len .fill 4, 0        ; sample-data length in bytes
+
+wavfile_cur
+    .word 0                   ; current chunk offset from the buffer base
+wavfile_sz
+    .fill 4, 0                ; current chunk size
+wavfile_adv
+    .word 0                   ; bytes to advance to the next chunk
+wavfile_fmt
+    .byte 0                   ; have we seen a fmt chunk yet?
+
+; ---------------------------------------------------------------------
+; wav_parse_header -- parse a WAV header from a buffer
+;   in:  X16_P0/P1 = pointer to the header bytes (consumed as a walking
+;        pointer; the buffer must hold everything up to the data chunk)
+;   out: carry clear on success, with wav_format/channels/rate/bits and
+;        wav_data_off/wav_data_len filled in; carry set if the buffer is
+;        not RIFF/WAVE or has no fmt+data chunks.
+; ---------------------------------------------------------------------
+wav_parse_header
+    bra wavfile_begin
+wavfile_bad
+    sec
+    rts
+wavfile_begin
+    ldy #0                     ; "RIFF"
+    lda (X16_P0),y
+    cmp #'R'
+    bne wavfile_bad
+    iny
+    lda (X16_P0),y
+    cmp #'I'
+    bne wavfile_bad
+    iny
+    lda (X16_P0),y
+    cmp #'F'
+    bne wavfile_bad
+    iny
+    lda (X16_P0),y
+    cmp #'F'
+    bne wavfile_bad
+    ldy #8                     ; "WAVE"
+    lda (X16_P0),y
+    cmp #'W'
+    bne wavfile_bad
+    iny
+    lda (X16_P0),y
+    cmp #'A'
+    bne wavfile_bad
+    iny
+    lda (X16_P0),y
+    cmp #'V'
+    bne wavfile_bad
+    iny
+    lda (X16_P0),y
+    cmp #'E'
+    bne wavfile_bad
+
+    stz wavfile_fmt
+    lda #12                    ; first chunk starts at offset 12
+    sta wavfile_cur
+    stz wavfile_cur+1
+    lda X16_P0
+    clc
+    adc #12
+    sta X16_P0
+    lda X16_P1
+    adc #0
+    sta X16_P1
+
+wavfile_chunk
+    ldy #0                     ; "fmt " ?
+    lda (X16_P0),y
+    cmp #'f'
+    bne wavfile_not_fmt
+    iny
+    lda (X16_P0),y
+    cmp #'m'
+    bne wavfile_not_fmt
+    iny
+    lda (X16_P0),y
+    cmp #'t'
+    bne wavfile_not_fmt
+    iny
+    lda (X16_P0),y
+    cmp #' '
+    bne wavfile_not_fmt
+    ; fmt chunk body starts at +8
+    ldy #8
+    lda (X16_P0),y
+    sta wav_format
+    ldy #10
+    lda (X16_P0),y
+    sta wav_channels
+    ldy #12
+    lda (X16_P0),y
+    sta wav_rate
+    iny
+    lda (X16_P0),y
+    sta wav_rate+1
+    iny
+    lda (X16_P0),y
+    sta wav_rate+2
+    iny
+    lda (X16_P0),y
+    sta wav_rate+3
+    ldy #22
+    lda (X16_P0),y
+    sta wav_bits
+    inc wavfile_fmt
+    bra wavfile_advance
+
+wavfile_not_fmt
+    ldy #0                     ; "data" ?
+    lda (X16_P0),y
+    cmp #'d'
+    bne wavfile_advance
+    iny
+    lda (X16_P0),y
+    cmp #'a'
+    bne wavfile_advance
+    iny
+    lda (X16_P0),y
+    cmp #'t'
+    bne wavfile_advance
+    iny
+    lda (X16_P0),y
+    cmp #'a'
+    bne wavfile_advance
+    ; data chunk: length at +4, sample data at +8
+    ldy #4
+    lda (X16_P0),y
+    sta wav_data_len
+    iny
+    lda (X16_P0),y
+    sta wav_data_len+1
+    iny
+    lda (X16_P0),y
+    sta wav_data_len+2
+    iny
+    lda (X16_P0),y
+    sta wav_data_len+3
+    lda wavfile_cur
+    clc
+    adc #8
+    sta wav_data_off
+    lda wavfile_cur+1
+    adc #0
+    sta wav_data_off+1
+    lda wavfile_fmt                   ; a data chunk before fmt is malformed
+    bne wavfile_datok
+    jmp wavfile_bad
+wavfile_datok
+    clc
+    rts
+
+wavfile_advance
+    ldy #4                     ; chunk size (32-bit; header chunks are small)
+    lda (X16_P0),y
+    sta wavfile_sz
+    iny
+    lda (X16_P0),y
+    sta wavfile_sz+1
+    iny
+    lda (X16_P0),y
+    sta wavfile_sz+2
+    iny
+    lda (X16_P0),y
+    sta wavfile_sz+3
+    lda wavfile_sz                    ; pad an odd size up to even
+    and #1
+    beq wavfile_even
+    inc wavfile_sz
+    bne wavfile_even
+    inc wavfile_sz+1
+wavfile_even
+    lda wavfile_sz                    ; adv = 8 + size (16-bit is plenty pre-data)
+    clc
+    adc #8
+    sta wavfile_adv
+    lda wavfile_sz+1
+    adc #0
+    sta wavfile_adv+1
+    lda X16_P0                 ; walk the pointer and the offset
+    clc
+    adc wavfile_adv
+    sta X16_P0
+    lda X16_P1
+    adc wavfile_adv+1
+    sta X16_P1
+    lda wavfile_cur
+    clc
+    adc wavfile_adv
+    sta wavfile_cur
+    lda wavfile_cur+1
+    adc wavfile_adv+1
+    sta wavfile_cur+1
+    lda wavfile_cur+1                 ; bail if we walk past a sane header size
+    cmp #4                     ; ~1 KB of chunks without a data: give up
+    bcc wavfile_more
+    jmp wavfile_bad
+wavfile_more
+    jmp wavfile_chunk
+
+; (end zone)
+.endif
 .if xuse_zx0
 ; --- inline util/zx0.asm ---
 ;ACME
@@ -21759,7 +21996,7 @@ bit_test
 
 ; (zone: file scope in 64tass)
 
-num_buf .fill 8, 0              ; enough for "65535" plus a terminator
+num_buf .fill 17, 0            ; enough for 16 binary digits plus a terminator
 
 ; ---------------------------------------------------------------------
 ; u16_to_dec -- unsigned 16-bit to decimal, no leading zeros
@@ -21926,6 +22163,481 @@ _ok
     rts
 _bad
     sec
+    rts
+
+; ---------------------------------------------------------------------
+; u8_to_dec -- unsigned 8-bit to decimal (no leading zeros)
+;   in:  A = value      out: A = buf low, X = buf high, Y = length
+; ---------------------------------------------------------------------
+u8_to_dec
+    sta X16_P0
+    stz X16_P1
+    jmp u16_to_dec
+
+; ---------------------------------------------------------------------
+; u8_to_hex -- unsigned 8-bit to two hex digits
+;   in:  A = value      out: A = buf low, X = buf high, Y = 2
+; ---------------------------------------------------------------------
+u8_to_hex
+    pha
+    jsr number_hi_digit
+    sta num_buf
+    pla
+    jsr number_lo_digit
+    sta num_buf+1
+    stz num_buf+2
+    lda #<num_buf
+    ldx #>num_buf
+    ldy #2
+    rts
+
+; ---------------------------------------------------------------------
+; u8_to_bin -- unsigned 8-bit to eight binary digits, MSB first
+;   in:  A = value      out: A = buf low, X = buf high, Y = 8
+; ---------------------------------------------------------------------
+u8_to_bin
+    sta X16_T0
+    ldy #0
+_loop
+    asl X16_T0                  ; MSB -> carry
+    lda #'0'
+    adc #0
+    sta num_buf,y
+    iny
+    cpy #8
+    bne _loop
+    lda #0
+    sta num_buf,y
+    lda #<num_buf
+    ldx #>num_buf
+    ldy #8
+    rts
+
+; ---------------------------------------------------------------------
+; u16_to_bin -- unsigned 16-bit to sixteen binary digits, MSB first
+;   in:  X16_P0/P1 = value (consumed)   out: A/X = buf, Y = 16
+; ---------------------------------------------------------------------
+u16_to_bin
+    ldy #0
+_loop
+    asl X16_P0
+    rol X16_P1                  ; MSB -> carry
+    lda #'0'
+    adc #0
+    sta num_buf,y
+    iny
+    cpy #16
+    bne _loop
+    lda #0
+    sta num_buf,y
+    lda #<num_buf
+    ldx #>num_buf
+    ldy #16
+    rts
+
+; ---------------------------------------------------------------------
+; s16_to_dec -- signed 16-bit to decimal, with a leading '-'
+;   in:  X16_P0/P1 = value (consumed)   out: A/X = buf, Y = length
+; ---------------------------------------------------------------------
+s16_to_dec
+    lda X16_P1
+    bpl _pos
+    sec                         ; value = -value
+    lda #0
+    sbc X16_P0
+    sta X16_P0
+    lda #0
+    sbc X16_P1
+    sta X16_P1
+    jsr u16_to_dec              ; format the magnitude
+    sty X16_T5                  ; length of the digits
+    ldx X16_T5
+_shift
+    lda num_buf,x               ; make room for the sign: shift right by one
+    sta num_buf+1,x
+    dex
+    bpl _shift
+    lda #'-'
+    sta num_buf
+    lda #<num_buf
+    ldx #>num_buf
+    ldy X16_T5
+    iny
+    rts
+_pos
+    jmp u16_to_dec
+
+; ---------------------------------------------------------------------
+; s8_to_dec -- signed 8-bit to decimal, with a leading '-'
+;   in:  A = value      out: A/X = buf, Y = length
+; ---------------------------------------------------------------------
+s8_to_dec
+    sta X16_P0
+    stz X16_P1
+    bit X16_P0
+    bpl _go
+    lda #$FF                    ; sign-extend into the high byte
+    sta X16_P1
+_go
+    jmp s16_to_dec
+
+; (end zone)
+.endif
+.if xuse_sort
+; --- inline util/sort.asm ---
+;ACME
+; =====================================================================
+; x16lib :: util/sort.asm -- in-place sorting of memory blocks
+; =====================================================================
+; This file EMITS CODE. Source it exactly once (x16_code.asm does).
+;
+; Sorts a contiguous block of fixed-size elements in place, ascending.
+; There is no "array type" -- you pass a base address and an element
+; count, which is exactly what a high-level array is underneath.
+;
+;   sort_u8  / sort_s8   -- byte elements, unsigned / signed
+;   sort_u16 / sort_s16  -- word elements, unsigned / signed
+;   sort_ptr             -- 2-byte elements ordered by a caller comparator
+;
+; One insertion-sort engine drives them all through a comparator vector;
+; the typed entries just pick the element size and the comparator. O(n`2)
+; but tiny and stable -- right for the modest arrays a 6502 sorts.
+;
+; Comparator ABI (used by sort_ptr, and internally):
+;   in:  X16_PTR2 (P4/P5) = address of element A
+;        X16_PTR3 (P6/P7) = address of element B
+;   out: carry SET if A must sort AFTER B (A > B), clear otherwise.
+;   May use A/X/Y; must not disturb the srt_* state.
+; =====================================================================
+
+; (zone: file scope in 64tass)
+
+srt_base  .word 0              ; base address of the array
+srt_count .word 0              ; element count
+srt_size  .byte 0              ; element size in bytes (1 or 2)
+srt_cmp   .word 0              ; comparator routine vector
+srt_i     .word 0              ; outer index
+srt_j     .word 0              ; inner index
+srt_key   .fill 2, 0           ; the element being inserted
+
+; ---------------------------------------------------------------------
+; public entry points -- in: X16_P0/P1 = base, X16_P2/P3 = count
+; ---------------------------------------------------------------------
+sort_u8
+    ldx #1
+    lda #<sort_cmp_u8
+    ldy #>sort_cmp_u8
+    bra sort_setup
+sort_s8
+    ldx #1
+    lda #<sort_cmp_s8
+    ldy #>sort_cmp_s8
+    bra sort_setup
+sort_u16
+    ldx #2
+    lda #<sort_cmp_u16
+    ldy #>sort_cmp_u16
+    bra sort_setup
+sort_s16
+    ldx #2
+    lda #<sort_cmp_s16
+    ldy #>sort_cmp_s16
+    bra sort_setup
+
+; sort_ptr -- element size 2, comparator address in X16_P4/P5
+sort_ptr
+    lda X16_P4
+    ldy X16_P5
+    ldx #2
+    ; fall through to sort_setup
+
+sort_setup
+    stx srt_size
+    sta srt_cmp
+    sty srt_cmp+1
+    lda X16_P0
+    sta srt_base
+    lda X16_P1
+    sta srt_base+1
+    lda X16_P2
+    sta srt_count
+    lda X16_P3
+    sta srt_count+1
+
+    ; nothing to do for fewer than two elements
+    lda srt_count+1
+    bne sort_start
+    lda srt_count
+    cmp #2
+    bcs sort_start
+sort_done
+    rts
+sort_start
+    lda #1                     ; i = 1
+    sta srt_i
+    stz srt_i+1
+
+sort_outer
+    ; while i < count
+    lda srt_i+1
+    cmp srt_count+1
+    bcc sort_body
+    bne sort_done
+    lda srt_i
+    cmp srt_count
+    bcs sort_done
+sort_body
+    ; key = arr[i]
+    lda srt_i
+    sta X16_T0
+    lda srt_i+1
+    sta X16_T1
+    jsr sort_addr2                 ; P4/P5 = &arr[i]
+    jsr sort_load_key
+
+    ; j = i - 1  (i >= 1 so this does not underflow)
+    lda srt_i
+    sec
+    sbc #1
+    sta srt_j
+    lda srt_i+1
+    sbc #0
+    sta srt_j+1
+
+sort_inner
+    ; P4/P5 = &arr[j],  P6/P7 = &srt_key,  compare
+    lda srt_j
+    sta X16_T0
+    lda srt_j+1
+    sta X16_T1
+    jsr sort_addr2                 ; P4/P5 = &arr[j]
+    lda #<srt_key
+    sta X16_P6
+    lda #>srt_key
+    sta X16_P7
+    jsr sort_callcmp               ; carry set if arr[j] > key
+    bcc sort_place_jp1
+
+    ; arr[j+1] = arr[j]
+    lda srt_j                  ; T0/T1 = j+1
+    clc
+    adc #1
+    sta X16_T0
+    lda srt_j+1
+    adc #0
+    sta X16_T1
+    jsr sort_addr3                 ; P6/P7 = &arr[j+1]  (dest; P4/P5 still &arr[j])
+    jsr sort_copy_elem
+
+    ; if j == 0, key belongs at arr[0]
+    lda srt_j
+    ora srt_j+1
+    beq sort_place_0
+
+    lda srt_j                  ; j--
+    sec
+    sbc #1
+    sta srt_j
+    lda srt_j+1
+    sbc #0
+    sta srt_j+1
+    bra sort_inner
+
+sort_place_0
+    stz X16_T0                 ; &arr[0]
+    stz X16_T1
+    jsr sort_addr3
+    jsr sort_store_key
+    bra sort_next_i
+
+sort_place_jp1
+    lda srt_j                  ; &arr[j+1]
+    clc
+    adc #1
+    sta X16_T0
+    lda srt_j+1
+    adc #0
+    sta X16_T1
+    jsr sort_addr3
+    jsr sort_store_key
+
+sort_next_i
+    inc srt_i
+    bne _loop
+    inc srt_i+1
+_loop
+    jmp sort_outer
+
+; --- address arithmetic ----------------------------------------------
+; sort_addr2 / sort_addr3 : X16_T0/T1 = index -> P4/P5 (resp. P6/P7) = base+index*size
+sort_addr2
+    ldx srt_size
+    cpx #2
+    beq _two
+    clc
+    lda srt_base
+    adc X16_T0
+    sta X16_P4
+    lda srt_base+1
+    adc X16_T1
+    sta X16_P5
+    rts
+_two
+    lda X16_T0
+    asl
+    sta X16_T2
+    lda X16_T1
+    rol
+    sta X16_T3
+    clc
+    lda srt_base
+    adc X16_T2
+    sta X16_P4
+    lda srt_base+1
+    adc X16_T3
+    sta X16_P5
+    rts
+
+sort_addr3
+    ldx srt_size
+    cpx #2
+    beq _two3
+    clc
+    lda srt_base
+    adc X16_T0
+    sta X16_P6
+    lda srt_base+1
+    adc X16_T1
+    sta X16_P7
+    rts
+_two3
+    lda X16_T0
+    asl
+    sta X16_T2
+    lda X16_T1
+    rol
+    sta X16_T3
+    clc
+    lda srt_base
+    adc X16_T2
+    sta X16_P6
+    lda srt_base+1
+    adc X16_T3
+    sta X16_P7
+    rts
+
+; --- element moves ---------------------------------------------------
+sort_load_key
+    ldy #0
+    lda (X16_P4),y
+    sta srt_key
+    ldx srt_size
+    cpx #2
+    bne _done
+    iny
+    lda (X16_P4),y
+    sta srt_key+1
+_done
+    rts
+
+sort_store_key
+    ldy #0
+    lda srt_key
+    sta (X16_P6),y
+    ldx srt_size
+    cpx #2
+    bne _done2
+    iny
+    lda srt_key+1
+    sta (X16_P6),y
+_done2
+    rts
+
+sort_copy_elem
+    ldy #0
+    lda (X16_P4),y
+    sta (X16_P6),y
+    ldx srt_size
+    cpx #2
+    bne _done3
+    iny
+    lda (X16_P4),y
+    sta (X16_P6),y
+_done3
+    rts
+
+sort_callcmp
+    jmp (srt_cmp)
+
+; --- built-in comparators (A at P4/P5, B at P6/P7; C set iff A > B) ----
+; Each is self-contained (no far branches to shared exits).
+sort_cmp_u8
+    ldy #0
+    lda (X16_P4),y
+    cmp (X16_P6),y             ; C = (A >= B)
+    bne _ret                  ; not equal -> C is already (A > B)
+    clc                       ; equal -> not greater
+_ret
+    rts
+
+sort_cmp_s8
+    ldy #0
+    lda (X16_P4),y
+    cmp (X16_P6),y
+    beq _eq
+    lda (X16_P4),y
+    sec
+    sbc (X16_P6),y
+    bvc _nov
+    eor #$80
+_nov
+    bmi _lt                   ; N set -> A < B
+    sec                       ; A > B
+    rts
+_lt
+_eq
+    clc
+    rts
+
+sort_cmp_u16
+    ldy #1
+    lda (X16_P4),y            ; high bytes
+    cmp (X16_P6),y
+    bne _ne                   ; high differs -> C decides
+    dey
+    lda (X16_P4),y            ; low bytes
+    cmp (X16_P6),y
+    bne _ne
+    clc                       ; fully equal
+    rts
+_ne
+    rts                       ; C = (A > B), since not equal
+
+sort_cmp_s16
+    ldy #1
+    lda (X16_P4),y
+    cmp (X16_P6),y
+    bne _hidiff
+    dey
+    lda (X16_P4),y
+    cmp (X16_P6),y            ; hi equal: low bytes decide (same sign)
+    bne _lodiff
+    clc                       ; fully equal
+    rts
+_lodiff
+    rts                       ; C = (A > B)
+_hidiff
+    lda (X16_P4),y            ; y=1, signed compare of high bytes
+    sec
+    sbc (X16_P6),y
+    bvc _nov2
+    eor #$80
+_nov2
+    bmi _lt2                  ; A < B
+    sec                       ; A > B
+    rts
+_lt2
+    clc
     rts
 
 ; (end zone)
@@ -27334,6 +28046,202 @@ slice_slice_isws
     rts
 slice_isws_yes
     sec
+    rts
+
+; (end zone)
+.endif
+.if xuse_string_sort
+; --- inline string/strsort.asm ---
+;ACME
+; =====================================================================
+; x16lib :: string/strsort.asm -- sort an array of string pointers
+; =====================================================================
+; This file EMITS CODE. Source it exactly once (x16_code.asm does).
+;
+; str_sort orders an array of NUL-terminated-string POINTERS (uwords)
+; ascending by string content, using str_compare. The strings never
+; move -- only the pointer array is permuted, exactly the layout of a
+; high-level string array.
+;
+; It carries its own (insertion) sort rather than calling the SORT
+; module's sort_ptr, so a program that sorts strings pulls in only the
+; STRING module, and a program that sorts numbers pulls in only SORT --
+; the two never drag each other in.
+; =====================================================================
+
+; (zone: file scope in 64tass)
+
+ss_base  .word 0               ; base of the pointer array
+ss_count .word 0               ; element count
+ss_i     .word 0
+ss_j     .word 0
+ss_key   .word 0               ; the pointer being inserted
+
+; ---------------------------------------------------------------------
+; str_sort -- ascending sort of a string-pointer array
+;   in: X16_P0/P1 = array base, X16_P2/P3 = element count
+; ---------------------------------------------------------------------
+str_sort
+    lda X16_P0
+    sta ss_base
+    lda X16_P1
+    sta ss_base+1
+    lda X16_P2
+    sta ss_count
+    lda X16_P3
+    sta ss_count+1
+
+    lda ss_count+1
+    bne _start
+    lda ss_count
+    cmp #2
+    bcs _start
+_done
+    rts
+_start
+    lda #1
+    sta ss_i
+    stz ss_i+1
+
+_outer
+    lda ss_i+1
+    cmp ss_count+1
+    bcc _body
+    bne _done
+    lda ss_i
+    cmp ss_count
+    bcs _done
+_body
+    ; key = arr[i]
+    lda ss_i
+    sta X16_T0
+    lda ss_i+1
+    sta X16_T1
+    jsr strsort_addr4                 ; P4/P5 = &arr[i]
+    ldy #0
+    lda (X16_P4),y
+    sta ss_key
+    iny
+    lda (X16_P4),y
+    sta ss_key+1
+
+    lda ss_i                   ; j = i - 1
+    sec
+    sbc #1
+    sta ss_j
+    lda ss_i+1
+    sbc #0
+    sta ss_j+1
+
+_inner
+    lda ss_j                   ; P4/P5 = &arr[j]
+    sta X16_T0
+    lda ss_j+1
+    sta X16_T1
+    jsr strsort_addr4
+    ; str_compare(s1 = *arr[j], s2 = key)  ->  A = -1/0/1
+    lda ss_key
+    sta X16_P0
+    lda ss_key+1
+    sta X16_P1
+    ldy #1
+    lda (X16_P4),y
+    tax                        ; s1 high
+    dey
+    lda (X16_P4),y             ; s1 low
+    jsr str_compare
+    cmp #1
+    bne _place_jp1             ; arr[j] <= key: stop shifting
+
+    ; arr[j+1] = arr[j]   (P4/P5 = &arr[j] survives str_compare)
+    lda ss_j
+    clc
+    adc #1
+    sta X16_T0
+    lda ss_j+1
+    adc #0
+    sta X16_T1
+    jsr strsort_addr6                 ; P6/P7 = &arr[j+1]
+    ldy #0
+    lda (X16_P4),y
+    sta (X16_P6),y
+    iny
+    lda (X16_P4),y
+    sta (X16_P6),y
+
+    lda ss_j                   ; j == 0 ? key belongs at arr[0]
+    ora ss_j+1
+    beq _place_0
+    lda ss_j
+    sec
+    sbc #1
+    sta ss_j
+    lda ss_j+1
+    sbc #0
+    sta ss_j+1
+    jmp _inner
+
+_place_0
+    stz X16_T0
+    stz X16_T1
+    jsr strsort_addr6                 ; P6/P7 = &arr[0]
+    bra _store
+
+_place_jp1
+    lda ss_j
+    clc
+    adc #1
+    sta X16_T0
+    lda ss_j+1
+    adc #0
+    sta X16_T1
+    jsr strsort_addr6                 ; P6/P7 = &arr[j+1]
+
+_store
+    ldy #0
+    lda ss_key
+    sta (X16_P6),y
+    iny
+    lda ss_key+1
+    sta (X16_P6),y
+
+_next_i
+    inc ss_i
+    bne _loop
+    inc ss_i+1
+_loop
+    jmp _outer
+
+; X16_T0/T1 = index -> P4/P5 (strsort_addr4) or P6/P7 (strsort_addr6) = base + index*2
+strsort_addr4
+    lda X16_T0
+    asl
+    sta X16_T2
+    lda X16_T1
+    rol
+    sta X16_T3
+    clc
+    lda ss_base
+    adc X16_T2
+    sta X16_P4
+    lda ss_base+1
+    adc X16_T3
+    sta X16_P5
+    rts
+strsort_addr6
+    lda X16_T0
+    asl
+    sta X16_T2
+    lda X16_T1
+    rol
+    sta X16_T3
+    clc
+    lda ss_base
+    adc X16_T2
+    sta X16_P6
+    lda ss_base+1
+    adc X16_T3
+    sta X16_P7
     rts
 
 ; (end zone)

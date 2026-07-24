@@ -1,5 +1,8 @@
 # X16_Prog8Library
 
+[Prog8](https://prog8.readthedocs.io/) is created by **Irmen de Jong**, and is
+arguably the finest language available for writing programs for the Commander X16.
+
 A [Prog8](https://prog8.readthedocs.io/) wrapper for the
 [X16_Library](../x16_library) — call the library's hand-written 6502 routines
 from Prog8 with typed subroutines, on the Commander X16.
