@@ -273,3 +273,32 @@ Run `java -jar prog8-sdk\prog8c.jar -help` for the complete, authoritative list.
 > and `cx.*` calls won't link. Use `build.ps1`, or write the `X16_USE_* = 1` lines
 > you need into `x16lib\x16lib_gates.inc` yourself first (see the pay-per-use
 > and banking sections above for how the gate includes work).
+
+### `%option no_sysinit` — start without resetting the machine
+
+By default Prog8 runs an `init_system` routine before `main.start()` that resets
+the cx16 to a clean state: `CINT` (video back to the default VGA text mode), a
+screen clear, default colors/border, `IOINIT`/`RESTOR`, audio silenced, mouse off.
+Put `%option no_sysinit` at the top of your main file to **skip that** and start
+in whatever state the machine is already in.
+
+```prog8
+%option no_sysinit
+%import x16lib
+%import x16lib_const
+%zeropage basicsafe
+
+main {
+    sub start() {
+        cx.gfx8h_init()        ; you own the video setup; Prog8 won't force VGA text first
+        ...
+    }
+}
+```
+
+It's a module-level directive, and it pairs naturally with this library: programs
+here usually pick their own video mode (`cx.screen_set_mode`, `cx.gfx8h_init`,
+`cx.gfx2h_init`, …), so skipping Prog8's default screen reset avoids a flash of
+cleared text mode and a redundant re-init. The trade-off: with `no_sysinit` you
+own any initialization you need — if you rely on the default text mode, colors, or
+restored KERNAL vectors, do that setup yourself.
