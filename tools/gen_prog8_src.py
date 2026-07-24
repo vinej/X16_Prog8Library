@@ -1,0 +1,359 @@
+#!/usr/bin/env python3
+# =====================================================================
+# gen_prog8_src.py -- "pay-per-use" Prog8 wrapper for the X16_Library.
+#
+# Unlike the fixed prebuilt blob, this embeds the X16_Library's 64tass
+# SOURCE port (which Prog8 assembles with the same 64tass it already
+# shells out to) and gates it module-by-module. A program links only the
+# modules it actually calls, so every one of the library's routines is
+# available yet the PRG carries only what is used.
+#
+# It produces, into x16lib/:
+#   x16lib_src.asm    the whole 64tass port flattened into one file
+#                     (all `.include`s inlined), still gated by X16_USE_*.
+#   x16lib.p8         core block `x16src` that %asminclude's the gates +
+#                     the source, plus typed wrappers in block `cx` that
+#                     jsr into x16src.<routine>.
+#   x16lib_const.p8   the UPPER_SNAKE constants (block x16c).
+#   routine_gates.json  routine -> X16_USE_* gate, for build.ps1 to turn
+#                     the program's cx.<name>() calls into the gate set.
+#
+# Usage:  python tools/gen_prog8_src.py [X16_LIBRARY_DIR]
+# =====================================================================
+import os, re, sys, json
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+PKG  = os.path.normpath(os.path.join(HERE, "..", "x16lib"))
+XLIB = sys.argv[1] if len(sys.argv) > 1 else r"c:/quartus/projects/x16_library"
+
+SRC64  = os.path.join(XLIB, "src_64tass")
+INC    = os.path.join(XLIB, "dist", "64tass", "x16lib.inc")
+SUGAR  = os.path.join(XLIB, "src_acme", "core", "sugar.asm")
+
+# ---------------------------------------------------------------------
+# 1. flatten the 64tass source tree (inline every .include)
+# ---------------------------------------------------------------------
+def flatten(path, out, base):
+    for line in open(os.path.join(base, path), encoding="utf-8", errors="replace"):
+        m = re.match(r'\s*\.include\s+"([^"]+)"', line)
+        if m:
+            out.append(f"; --- inline {m.group(1)} ---\n")
+            flatten(m.group(1), out, base)
+        else:
+            out.append(line)
+
+LIBSYMS = set()      # every label/symbol defined in the embedded source
+
+def write_flat():
+    out = []
+    flatten("x16.asm", out, SRC64)
+    flatten("x16_code.asm", out, SRC64)
+    with open(os.path.join(PKG, "x16lib_src.asm"), "w",
+              encoding="utf-8", newline="\n") as f:
+        f.writelines(out)
+    # collect top-level labels and `name = ...` / `name .byte` definitions
+    for line in out:
+        m = re.match(r"^([a-z][a-z0-9_]*)\b", line)
+        if m:
+            LIBSYMS.add(m.group(1))
+    return len(out)
+
+# ---------------------------------------------------------------------
+# 2. routine -> gate map
+#    x16_code.asm:  .if xuse_<cond>  ->  .include "dir/file.asm"
+#    each file's top-level labels are its routines.
+#    gate to *set* = X16_USE_<BASE>, BASE = cond without _any/_core suffix.
+# ---------------------------------------------------------------------
+def build_gate_map():
+    code = open(os.path.join(SRC64, "x16_code.asm"), encoding="utf-8").read().splitlines()
+    file_cond = {}                       # "gfx/shapes.asm" -> "shapes"
+    pending = None
+    for line in code:
+        m = re.match(r"\s*\.if\s+xuse_(\w+)", line)
+        if m:
+            pending = m.group(1)
+            continue
+        m = re.match(r'\s*\.include\s+"([^"]+)"', line)
+        if m and pending:
+            file_cond[m.group(1)] = pending
+            pending = None
+
+    # cond -> settable gate name
+    def cond_gate(cond):
+        base = re.sub(r"_(any|core)$", "", cond)
+        return "X16_USE_" + base.upper()
+
+    routine_gate = {}
+    for relpath, cond in file_cond.items():
+        fp = os.path.join(SRC64, relpath)
+        if not os.path.isfile(fp):
+            continue
+        file_gate = cond_gate(cond)
+        stack = []                       # nested .if xuse_* gates within the file
+        for line in open(fp, encoding="utf-8", errors="replace"):
+            mif = re.match(r"\s*\.if\s+(.*)", line)
+            if mif:
+                sub = re.search(r"xuse_(\w+)", mif.group(1))
+                stack.append(cond_gate(sub.group(1)) if sub else None)
+                continue
+            if re.match(r"\s*\.endif\b", line):
+                if stack: stack.pop()
+                continue
+            m = re.match(r"^([a-z][a-z0-9_]*)\b", line)
+            if m:
+                inner = next((g for g in reversed(stack) if g), None)
+                routine_gate.setdefault(m.group(1), inner or file_gate)
+    return routine_gate
+
+# ---------------------------------------------------------------------
+# 3. constants (same as the blob generator)
+# ---------------------------------------------------------------------
+def load_inc_syms():
+    sym = {}
+    for line in open(INC, encoding="utf-8"):
+        m = re.match(r"^([A-Za-z_]\w*)\s*=\s*\$([0-9A-Fa-f]+)", line.strip())
+        if m:
+            sym[m.group(1)] = int(m.group(2), 16)
+    return sym
+
+def gen_consts(sym):
+    consts = sorted((n, v) for n, v in sym.items()
+                    if re.match(r"^[A-Z][A-Z0-9_]*$", n) and not n.startswith("X16_USE_"))
+    out = ["; x16lib_const.p8 -- GENERATED by tools/gen_prog8_src.py, do not edit.",
+           "; X16_Library constants (block x16c).", "",
+           "x16c {", "    %option ignore_unused, no_symbol_prefixing", ""]
+    for n, v in consts:
+        typ = "ubyte" if v <= 0xFF else "uword" if v <= 0xFFFF else "long"
+        out.append(f"    const {typ} {n} = ${v:X}")
+    out += ["}", ""]
+    return "\n".join(out)
+
+# ---------------------------------------------------------------------
+# 4. wrappers from sugar.asm  (reuse the blob generator's parser rules)
+# ---------------------------------------------------------------------
+PBLOCK = {f"X16_P{k}": 0x22 + k for k in range(8)}
+RET = {
+    "A":  ("ubyte", "ret8",  ["sta p8v_ret8"]),
+    "AX": ("uword", "ret16", ["sta p8v_ret16", "stx p8v_ret16+1"]),
+    "AY": ("uword", "ret16", ["sta p8v_ret16", "sty p8v_ret16+1"]),
+    "Pc": ("bool",  "retbit", ["lda #0", "rol  a", "sta p8v_retbit"]),
+}
+RESERVED = set("""a x y if for while do when sub asmsub extsub return goto true
+false and or not xor as to in step downto void ubyte byte uword word long float
+str bool const struct enum alias inline private call on repeat unroll break
+continue defer len sizeof abs min max sqrt sgn sin cos tan mkword msb lsb peek
+peekw poke pokew rnd rndw swap sort reverse rol ror rol2 ror2 memory clamp divmod
+setlsb setmsb cx cy x16src x16c x16lib main start""".split())
+
+MNEMONICS = set("""adc and asl bcc bcs beq bit bmi bne bpl bra brk bvc bvs clc
+cld cli clv cmp cpx cpy dec dex dey eor inc inx iny jmp jsr lda ldx ldy lsr nop
+ora pha php phx phy pla plp plx ply rol ror rti rts sbc sec sed sei sta stp stx
+sty stz tax tay trb tsb tsx txa txs tya wai a x y""".split())
+
+def rreg(tok):
+    m = re.fullmatch(r"r(\d+)([LH]?)", tok)
+    if not m:
+        return None
+    base = 0x02 + int(m.group(1)) * 2 + (1 if m.group(2) == "H" else 0)
+    return base
+
+class Macro: __slots__ = ("name", "args", "body", "doc")
+
+def parse_sugar():
+    macros, doc = [], []
+    lines = open(SUGAR, encoding="utf-8").readlines()
+    i, n = 0, len(lines)
+    mhead = re.compile(r"^\s*!macro\s+xm_(\w+)\s*(.*?)\s*\{\s*$")
+    while i < n:
+        raw, s = lines[i], lines[i].strip()
+        if s.startswith(";"):
+            d = s.lstrip(";").strip()
+            if d and not re.fullmatch(r"[=\-]{3,}.*", d):
+                doc.append(d)
+            i += 1; continue
+        m = mhead.match(raw)
+        if m:
+            mc = Macro()
+            mc.name = m.group(1)
+            mc.args = [a.strip().lstrip(".") for a in m.group(2).split(",") if a.strip()]
+            mc.doc = doc[:]
+            body, i, depth = [], i + 1, 1
+            while i < n and depth > 0:
+                st = lines[i].strip()
+                if st == "}":
+                    depth -= 1
+                    if depth == 0: i += 1; break
+                body.append(st); i += 1
+            mc.body = body
+            macros.append(mc); doc = []
+            continue
+        if s and not s.startswith("!"):    # keep doc across !ifdef wrappers
+            doc = []
+        i += 1
+    return macros
+
+def translate(mc):
+    body = [re.sub(r";.*$", "", b).rstrip() for b in mc.body]
+    body = [b for b in body if b.strip()]
+    target = None
+    for b in body:
+        m = re.match(r"jsr\s+(\w+)", b)
+        if m: target = m.group(1)
+    if not target:
+        return None
+    is16 = {a: False for a in mc.args}; used = set()
+    for b in body:
+        for a in mc.args:
+            if re.search(r"#[<>]\(\." + re.escape(a) + r"\)", b): is16[a] = True; used.add(a)
+            elif re.search(r"#\(\." + re.escape(a) + r"\)", b): used.add(a)
+    for a in mc.args:                    # skip macros doing arithmetic on args
+        probe = re.sub(r"#[<>]?\(\." + re.escape(a) + r"\)", "", "\n".join(body))
+        if re.search(r"\." + re.escape(a) + r"\b", probe):
+            return None
+    asm = []
+    for b in body:
+        line = b
+        for a in mc.args:
+            line = re.sub(r"#<\(\." + re.escape(a) + r"\)", f"p8v_{a}", line)
+            line = re.sub(r"#>\(\." + re.escape(a) + r"\)", f"p8v_{a}+1", line)
+            line = re.sub(r"#\(\." + re.escape(a) + r"\)",  f"p8v_{a}", line)
+        for pn, pa in PBLOCK.items():
+            line = re.sub(r"\b" + pn + r"\b", f"${pa:02X}", line)
+        line = re.sub(r"\br\d+[LH]?\b",
+                      lambda m: f"${rreg(m.group(0)):02X}" if rreg(m.group(0)) is not None else m.group(0),
+                      line)
+        # qualify every library symbol (routine or data label) into x16src
+        line = re.sub(r"\b[a-z_][a-z0-9_]*\b",
+                      lambda m: "x16src." + m.group(0)
+                      if (m.group(0) in LIBSYMS and m.group(0) not in MNEMONICS) else m.group(0),
+                      line)
+        asm.append(line)
+    params = [(a, "uword" if is16[a] else "ubyte") for a in mc.args if a in used]
+    ret = None
+    dm = re.search(r"->\s*(.*)", " ".join(mc.doc))
+    if dm:
+        r = dm.group(1)
+        if re.search(r"\bA/X\b|\bAX\b", r): ret = "AX"
+        elif re.search(r"\bA/Y\b|\bAY\b", r): ret = "AY"
+        elif re.search(r"carry|@ ?Pc", r): ret = "Pc"
+        elif re.search(r"\bA\b", r): ret = "A"
+    return params, asm, ret, target
+
+def gen_lib(macros, routine_gate):
+    # ---- first pass: collect the wrappers (need all gates for weak defaults) --
+    wrappers, seen, gated = [], set(), {}
+    for mc in macros:
+        if mc.name in seen: continue
+        tr = translate(mc)
+        if tr is None: continue
+        seen.add(mc.name)
+        params, asm, ret, target = tr
+        gate = routine_gate.get(target)
+        if gate: gated[mc.name] = gate
+        wrappers.append((mc, params, asm, ret, gate))
+    allgates = sorted({g for g in gated.values()})
+
+    out = ["; x16lib.p8 -- GENERATED by tools/gen_prog8_src.py, do not edit.",
+           "; Typed wrappers (block cx) over the embedded X16_Library 64tass source.",
+           ";   %import x16lib          ->  cx.screen_puts(...), cx.shape_circle(...), ...",
+           "; The build enables only the modules your cx.* calls touch. Modules named",
+           "; with build.ps1 -Bank are relocated into an 8K RAM bank; their wrappers",
+           "; far-call into it. See routine_gates.json / symbol_gates.json + build.ps1.", "",
+           "cx {", "    %option ignore_unused", "",
+           "    ubyte ret8", "    uword ret16", "    bool  retbit", "",
+           "    ; bank configuration: x16lib_bankdefs.inc = weak 0 defaults for every",
+           "    ; gate; x16lib_bankcfg.inc = the actual banked set (written by build.ps1)",
+           '    %asminclude "x16lib_bankdefs.inc"',
+           '    %asminclude "x16lib_bankcfg.inc"', "",
+            "    ; loads the companion bank image(s) at startup; call once before any",
+            "    ; banked cx.* routine. A no-op when nothing is banked.",
+            "    sub load_banks() {",
+            '        %asminclude "x16lib_bankload.inc"',
+            "    }", ""]
+
+    for mc, params, asm, ret, gate in wrappers:
+        pdecl, rename = [], {}
+        for a, t in params:
+            pa = a + "_" if a in RESERVED else a
+            if pa != a: rename[a] = pa
+            pdecl.append(f"{t} {pa}")
+        rtype = capvar = None; capture = []
+        if ret: rtype, capvar, capture = RET[ret]
+        rsig = f" -> {rtype}" if rtype else ""
+        if mc.doc: out.append("    ; " + " ".join(mc.doc)[:110])
+        out.append(f"    sub {mc.name}({', '.join(pdecl)}){rsig} {{")
+        out.append("        %asm {{")
+        if gate:                          # far-call trampoline when banked
+            out += [f"        .if BANK_{gate}",     # BANK_<gate> = the RAM bank number (0 = low)
+                    "            lda $00",
+                    "            pha",
+                    f"            lda #BANK_{gate}",
+                    "            sta $00",
+                    "        .endif"]
+        for line in asm:
+            for a, pa in rename.items():
+                line = re.sub(r"\bp8v_" + re.escape(a) + r"\b", "p8v_" + pa, line)
+            if line.strip(): out.append("            " + line)
+        for line in capture: out.append("            " + line)
+        if gate:
+            out += [f"        .if BANK_{gate}",
+                    "            pla",
+                    "            sta $00",
+                    "        .endif"]
+        out.append("        }}")
+        if capvar: out.append(f"        return {capvar}")
+        out += ["    }", ""]
+
+    out += ["}", "",
+            "; ------------------------------------------------------------------",
+            "; The X16_Library machine code, assembled inline from its 64tass source.",
+            "; build.ps1 writes x16lib_gates.inc (which low-RAM modules) and",
+            "; x16lib_bankaddr.inc (addresses of routines relocated into a RAM bank).",
+            "; ------------------------------------------------------------------",
+            "x16src {",
+            "    %option force_output, ignore_unused, no_symbol_prefixing",
+            '    %asminclude "x16lib_bankaddr.inc"',
+            '    %asminclude "x16lib_gates.inc"',
+            '    %asminclude "x16lib_src.asm"',
+            "}", ""]
+    return "\n".join(out), len(wrappers), gated
+
+# ---------------------------------------------------------------------
+def main():
+    os.makedirs(PKG, exist_ok=True)
+    nlines = write_flat()
+    routine_gate = build_gate_map()
+    sym = load_inc_syms()
+    with open(os.path.join(PKG, "x16lib_const.p8"), "w", newline="\n") as f:
+        f.write(gen_consts(sym))
+    macros = parse_sugar()
+    lib, count, gated = gen_lib(macros, routine_gate)
+    with open(os.path.join(PKG, "x16lib.p8"), "w", newline="\n") as f:
+        f.write(lib)
+    with open(os.path.join(PKG, "routine_gates.json"), "w", newline="\n") as f:
+        json.dump(gated, f, indent=0, sort_keys=True)
+    # full symbol -> gate map (every library label), for build.ps1 to pick which
+    # bank-build symbols belong to the explicitly-banked modules.
+    with open(os.path.join(PKG, "symbol_gates.json"), "w", newline="\n") as f:
+        json.dump(routine_gate, f, indent=0, sort_keys=True)
+    # weak-0 defaults for every bank gate, so `.if BANK_<gate>` always resolves
+    allgates = sorted(set(gated.values()))
+    with open(os.path.join(PKG, "x16lib_bankdefs.inc"), "w", newline="\n") as f:
+        f.write("; GENERATED -- weak defaults so .if BANK_<gate> always resolves.\n")
+        f.write(".weak\n")
+        for g in allgates:
+            f.write(f"BANK_{g} = 0\n")     # 0 = module stays in low RAM
+        f.write(".endweak\n")
+    # default include files so a bare `prog8c` (no build.ps1) still compiles
+    for name, body in (("x16lib_gates.inc",   "; enabled X16_USE_* gates (written by build.ps1)\n"),
+                       ("x16lib_bankcfg.inc",  "; bank config (written by build.ps1)\n"),
+                       ("x16lib_bankaddr.inc", "; banked routine addresses (written by build.ps1)\n"),
+                       ("x16lib_bankload.inc", "; bank loader (written by build.ps1)\n")):
+        p = os.path.join(PKG, name)
+        if not os.path.exists(p):
+            open(p, "w", newline="\n").write(body)
+    print(f"flattened {nlines} lines; {count} wrappers; "
+          f"{len(gated)} routine->gate mappings ({len(set(gated.values()))} distinct gates)")
+
+if __name__ == "__main__":
+    main()

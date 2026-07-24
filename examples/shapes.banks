@@ -1,0 +1,2 @@
+# bank layout for shapes.p8 -- module(s) per 8K RAM bank
+bank 22, "shapes,bitmap2h"

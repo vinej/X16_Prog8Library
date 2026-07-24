@@ -1,0 +1,7 @@
+# Third-party emulator + ROM (not ours to redistribute)
+/emulator/
+
+# Build output (generated PRGs, BANK.BIN images, listings, temporaries)
+/build/
+
+/prog8-sdk/
