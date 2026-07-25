@@ -50,11 +50,47 @@ kk {
     const ubyte T_LABEL  = 2
     const ubyte T_FORM   = 3
     const ubyte T_FERR   = 4         ; formula whose last evaluation failed
+    const ubyte T_FNA    = 5         ; ...or that evaluated to @NA
 
+    ; VisiCalc has two sentinel values and they propagate: a formula that
+    ; reads an @NA cell is itself @NA, one that reads an @ERROR cell is
+    ; @ERROR, and ERROR wins when a formula meets both.
+    const ubyte E_NA     = 1
+    const ubyte E_ERR    = 2
+
+    ; the VisiCalc function set. Everything up to F_LOOKUP takes a range,
+    ; everything from F_PI takes nothing at all.
     const ubyte F_SUM    = 1
-    const ubyte F_ABS    = 2
-    const ubyte F_INT    = 3
-    const ubyte F_SQRT   = 4
+    const ubyte F_MIN    = 2
+    const ubyte F_MAX    = 3
+    const ubyte F_COUNT  = 4
+    const ubyte F_AVG    = 5
+    const ubyte F_NPV    = 6
+    const ubyte F_LOOKUP = 7
+    const ubyte F_ABS    = 8
+    const ubyte F_INT    = 9
+    const ubyte F_SQRT   = 10
+    const ubyte F_EXP    = 11
+    const ubyte F_LN     = 12
+    const ubyte F_LOG10  = 13
+    const ubyte F_SIN    = 14
+    const ubyte F_COS    = 15
+    const ubyte F_TAN    = 16
+    const ubyte F_ASIN   = 17
+    const ubyte F_ACOS   = 18
+    const ubyte F_ATAN   = 19
+    const ubyte F_PI     = 20
+    const ubyte F_ERROR  = 21
+    const ubyte F_NA     = 22
+
+    str[] fnames = ["SUM", "MIN", "MAX", "COUNT", "AVERAGE", "AVG", "NPV",
+                    "LOOKUP", "ABS", "INT", "SQRT", "EXP", "LN", "LOG10",
+                    "SIN", "COS", "TAN", "ASIN", "ACOS", "ATAN", "PI",
+                    "ERROR", "NA"]
+    ubyte[] fnids = [F_SUM, F_MIN, F_MAX, F_COUNT, F_AVG, F_AVG, F_NPV,
+                     F_LOOKUP, F_ABS, F_INT, F_SQRT, F_EXP, F_LN, F_LOG10,
+                     F_SIN, F_COS, F_TAN, F_ASIN, F_ACOS, F_ATAN, F_PI,
+                     F_ERROR, F_NA]
 
     ; ---- storage -----------------------------------------------------
     uword arena_p = memory("kk_arena", 11264, 0)
@@ -82,9 +118,20 @@ kk {
     ubyte[5]  tmp5
     ubyte[5]  k100
     ubyte[5]  k05
+    ubyte[5]  k1
+    ubyte[5]  kpi
+    ubyte[5]  kpi2
+    ubyte[5]  kilog10
+    ubyte[5]  acc2
+    ubyte[5]  acc3
     str       s_hundred = "100"
     str       s_half    = "0.5"
+    str       s_one     = "1"
+    str       s_pi      = "3.14159265"
+    str       s_pi2     = "1.57079633"
+    str       s_ilog10  = ".43429448"
     str       s_error   = "ERROR"
+    str       s_na      = "NA"
 
     ; ---- parser state ------------------------------------------------
     uword pp                         ; parse cursor into ebuf
@@ -443,6 +490,14 @@ kk {
         cx.f_store(&k100)
         cx.f_from_str(&s_half, 3)
         cx.f_store(&k05)
+        cx.f_from_str(&s_one, 1)
+        cx.f_store(&k1)
+        cx.f_from_str(&s_pi, 10)
+        cx.f_store(&kpi)
+        cx.f_from_str(&s_pi2, 10)
+        cx.f_store(&kpi2)
+        cx.f_from_str(&s_ilog10, 9)      ; 1 / ln 10, for @LOG10
+        cx.f_store(&kilog10)
     }
 
 
@@ -495,7 +550,7 @@ kk {
 ; =====================================================================
     sub fpush() {
         if fsp >= FDEPTH {
-            perr = 1
+            seterr(E_ERR)
             return
         }
         cx.f_store(&fstk + fsp * 6)
@@ -504,7 +559,7 @@ kk {
 
     sub fpop() -> uword {
         if fsp == 0 {
-            perr = 1
+            seterr(E_ERR)
             return &fstk
         }
         fsp--
@@ -513,7 +568,7 @@ kk {
 
     sub bpush(ubyte v) {
         if bsp >= 16 {
-            perr = 1
+            seterr(E_ERR)
             return
         }
         bstk[bsp] = v
@@ -522,11 +577,17 @@ kk {
 
     sub bpop() -> ubyte {
         if bsp == 0 {
-            perr = 1
+            seterr(E_ERR)
             return 0
         }
         bsp--
         return bstk[bsp]
+    }
+
+    ; keep the worst outcome seen: an ERROR anywhere outranks an @NA
+    sub seterr(ubyte level) {
+        if level > perr
+            perr = level
     }
 
     sub p_skipws() {
@@ -565,7 +626,7 @@ kk {
         uword s = pp
         ubyte n = scan_number_token()
         if n == 0 {
-            perr = 1
+            seterr(E_ERR)
             cx.f_zero()
             return
         }
@@ -619,20 +680,25 @@ kk {
     sub p_cellval() {
         ubyte n = refabs(pp)
         if n == 0 {
-            perr = 1
+            seterr(E_ERR)
             cx.f_zero()
             return
         }
         pp += n
         if ref_c >= NCOL or ref_r >= NROW {
-            perr = 1
+            seterr(E_ERR)
             cx.f_zero()
             return
         }
         uword idx = cidx(lsb(ref_c), lsb(ref_r))
         ubyte t = ctype(idx)
         if t == T_FERR {
-            perr = 1
+            seterr(E_ERR)
+            cx.f_zero()
+            return
+        }
+        if t == T_FNA {
+            seterr(E_NA)
             cx.f_zero()
             return
         }
@@ -643,105 +709,33 @@ kk {
         cx.f_load(valptr(idx))
     }
 
+    ; the typed name against the table, case already folded up
     sub func_id(ubyte n) -> ubyte {
-        if n == 3 {
-            if fnbuf[0] == 'S' and fnbuf[1] == 'U' and fnbuf[2] == 'M'
-                return F_SUM
-            if fnbuf[0] == 'A' and fnbuf[1] == 'B' and fnbuf[2] == 'S'
-                return F_ABS
-            if fnbuf[0] == 'I' and fnbuf[1] == 'N' and fnbuf[2] == 'T'
-                return F_INT
-        }
-        if n == 4 {
-            if fnbuf[0] == 'S' and fnbuf[1] == 'Q' and fnbuf[2] == 'R' and fnbuf[3] == 'T'
-                return F_SQRT
+        ubyte i = 0
+        while i < len(fnames) {
+            uword nm = fnames[i]
+            ubyte j = 0
+            while j < n {
+                if @(nm + j) != fnbuf[j]
+                    break
+                j++
+            }
+            if j == n {
+                if @(nm + n) == 0
+                    return fnids[i]
+            }
+            i++
         }
         return 0
     }
 
-    sub p_func() {
-        ubyte n = 0
-        while n < 6 {
-            ubyte a = alpha_idx(@(pp))
-            if a == 255
-                break
-            fnbuf[n] = a + 'A'
-            n++
-            pp++
-        }
-        ubyte fid = func_id(n)
-        if @(pp) != '(' {
-            perr = 1
-            cx.f_zero()
-            return
-        }
-        pp++
-        p_skipws()
+    ; ---- the range functions -----------------------------------------
+    ; One walk serves SUM, MIN, MAX, COUNT and AVERAGE: acc5 carries the
+    ; running value and cnt the number of cells that held one. Labels and
+    ; empty cells are skipped, exactly as VisiCalc does.
+    uword rcount
 
-        ; a range argument -- A1...B5 -- is checked for first
-        uword save = pp
-        bool is_range = false
-        uword c1 = 0
-        uword r1 = 0
-        uword c2 = 0
-        uword r2 = 0
-        ubyte k = refabs(pp)
-        if k != 0 {
-            c1 = ref_c
-            r1 = ref_r
-            uword q = pp + k
-            if @(q) == '.' and @(q + 1) == '.' and @(q + 2) == '.' {
-                q += 3
-                k = refabs(q)
-                if k != 0 {
-                    c2 = ref_c
-                    r2 = ref_r
-                    pp = q + k
-                    is_range = true
-                }
-            }
-        }
-        if not is_range
-            pp = save
-
-        if is_range {
-            if fid != F_SUM {
-                perr = 1
-                cx.f_zero()
-                return
-            }
-            sum_range(c1, r1, c2, r2)
-        } else {
-            if fid == 0 {
-                perr = 1
-                cx.f_zero()
-                return
-            }
-            bpush(fid)
-            p_expr()
-            fid = bpop()
-            if fid == F_ABS
-                cx.f_abs()
-            else if fid == F_INT
-                ftrunc()
-            else if fid == F_SQRT {
-                if cx.f_sgn() == $FF {
-                    perr = 1
-                    cx.f_zero()
-                } else {
-                    cx.f_sqrt()
-                }
-            }
-        }
-        p_skipws()
-        if @(pp) != ')' {
-            perr = 1
-            return
-        }
-        pp++
-    }
-
-    sub sum_range(uword c1, uword r1, uword c2, uword r2) {
+    sub range_walk(ubyte mode, uword c1, uword r1, uword c2, uword r2) {
         uword sw
         if c1 > c2 {
             sw = c1
@@ -753,6 +747,7 @@ kk {
             r1 = r2
             r2 = sw
         }
+        rcount = 0
         cx.f_zero()
         cx.f_store(&acc5)
         uword c = c1
@@ -764,11 +759,34 @@ kk {
                         uword idx = cidx(lsb(c), lsb(r))
                         ubyte t = ctype(idx)
                         if t == T_FERR {
-                            perr = 1
+                            seterr(E_ERR)
+                        } else if t == T_FNA {
+                            seterr(E_NA)
                         } else if t == T_NUM or t == T_FORM {
-                            cx.f_load(valptr(idx))
-                            cx.f_add(&acc5)
-                            cx.f_store(&acc5)
+                            if mode == F_COUNT {
+                                rcount++
+                            } else if rcount == 0 {
+                                cx.f_load(valptr(idx))       ; the first one
+                                cx.f_store(&acc5)
+                                rcount++
+                            } else {
+                                rcount++
+                                if mode == F_MIN or mode == F_MAX {
+                                    cx.f_load(valptr(idx))
+                                    ubyte rel = cx.f_cmp(&acc5)
+                                    if mode == F_MIN {
+                                        if rel == $FF
+                                            cx.f_store(&acc5)
+                                    } else {
+                                        if rel == 1
+                                            cx.f_store(&acc5)
+                                    }
+                                } else {
+                                    cx.f_load(valptr(idx))
+                                    cx.f_add(&acc5)
+                                    cx.f_store(&acc5)
+                                }
+                            }
                         }
                     }
                     r++
@@ -776,13 +794,364 @@ kk {
             }
             c++
         }
+        if mode == F_COUNT {
+            cx.f_from_s16(rcount)
+            return
+        }
+        if rcount == 0 {
+            cx.f_zero()                  ; an empty range sums to nothing
+            return
+        }
         cx.f_load(&acc5)
+        if mode == F_AVG {
+            cx.f_from_s16(rcount)
+            cx.f_store(&acc2)
+            cx.f_load(&acc5)
+            cx.f_div(&acc2)
+        }
+    }
+
+    ; @NPV(rate, range) -- each cash flow discounted one more period than
+    ; the one before it, the first by one period.
+    sub npv_range(uword c1, uword r1, uword c2, uword r2) {
+        cx.f_store(&acc3)                ; acc3 = the rate, left in FAC
+        cx.f_load(&acc3)
+        cx.f_add(&k1)
+        cx.f_store(&acc3)                ; acc3 = 1 + rate
+        if fac_is_zero() {
+            seterr(E_ERR)
+            cx.f_zero()
+            return
+        }
+        cx.f_load(&acc3)
+        cx.f_store(&acc2)                ; acc2 = the running divisor
+        cx.f_zero()
+        cx.f_store(&acc5)                ; acc5 = the running total
+        uword sw
+        if c1 > c2 {
+            sw = c1
+            c1 = c2
+            c2 = sw
+        }
+        if r1 > r2 {
+            sw = r1
+            r1 = r2
+            r2 = sw
+        }
+        uword r = r1
+        while r <= r2 {
+            if r < NROW {
+                uword c = c1
+                while c <= c2 {
+                    if c < NCOL {
+                        uword idx = cidx(lsb(c), lsb(r))
+                        ubyte t = ctype(idx)
+                        if t == T_FERR {
+                            seterr(E_ERR)
+                        } else if t == T_FNA {
+                            seterr(E_NA)
+                        } else if t == T_NUM or t == T_FORM {
+                            cx.f_load(valptr(idx))
+                            cx.f_div(&acc2)
+                            cx.f_add(&acc5)
+                            cx.f_store(&acc5)
+                            cx.f_load(&acc2)     ; divisor *= 1 + rate
+                            cx.f_mul(&acc3)
+                            cx.f_store(&acc2)
+                        }
+                    }
+                    c++
+                }
+            }
+            r++
+        }
+        cx.f_load(&acc5)
+    }
+
+    ; @LOOKUP(value, range) -- walk the range while its entries stay at or
+    ; below the value, then take the cell just past the range in the same
+    ; direction. A single-column range reads the column to its right, a
+    ; single-row range the row below it.
+    sub lookup_range(uword c1, uword r1, uword c2, uword r2) {
+        cx.f_store(&acc3)                ; the value being looked up
+        uword sw
+        if c1 > c2 {
+            sw = c1
+            c1 = c2
+            c2 = sw
+        }
+        if r1 > r2 {
+            sw = r1
+            r1 = r2
+            r2 = sw
+        }
+        bool vertical = c1 == c2
+        uword hit = $FFFF
+        uword c = c1
+        uword r = r1
+        while true {
+            if c >= NCOL or r >= NROW or c > c2 or r > r2
+                break
+            uword idx = cidx(lsb(c), lsb(r))
+            ubyte t = ctype(idx)
+            if t == T_NUM or t == T_FORM {
+                cx.f_load(valptr(idx))
+                if cx.f_cmp(&acc3) == 1
+                    break                ; past the value: stop here
+                hit = idx
+            }
+            if vertical
+                r++
+            else
+                c++
+        }
+        if hit == $FFFF {
+            seterr(E_NA)                 ; nothing at or below the value
+            cx.f_zero()
+            return
+        }
+        ubyte hc = idx_col(hit)
+        ubyte hr = idx_row(hit)
+        if vertical
+            hc++
+        else
+            hr++
+        if hc >= NCOL or hr >= NROW {
+            seterr(E_NA)
+            cx.f_zero()
+            return
+        }
+        uword out = cidx(hc, hr)
+        ubyte ot = ctype(out)
+        if ot == T_FERR {
+            seterr(E_ERR)
+            cx.f_zero()
+        } else if ot == T_FNA {
+            seterr(E_NA)
+            cx.f_zero()
+        } else if ot == T_NUM or ot == T_FORM {
+            cx.f_load(valptr(out))
+        } else {
+            cx.f_zero()
+        }
+    }
+
+    ; ---- the one-argument functions ----------------------------------
+    sub apply_fn(ubyte fid) {
+        if fid == F_ABS {
+            cx.f_abs()
+        } else if fid == F_INT {
+            ftrunc()
+        } else if fid == F_SQRT {
+            if cx.f_sgn() == $FF {
+                seterr(E_ERR)
+                cx.f_zero()
+            } else {
+                cx.f_sqrt()
+            }
+        } else if fid == F_EXP {
+            cx.f_exp()
+        } else if fid == F_LN or fid == F_LOG10 {
+            if cx.f_sgn() != 1 {         ; ln of zero or less is undefined,
+                seterr(E_ERR)            ; and the ROM would raise its own
+                cx.f_zero()              ; error and abandon the program
+            } else {
+                cx.f_ln()
+                if fid == F_LOG10
+                    cx.f_mul(&kilog10)
+            }
+        } else if fid == F_SIN {
+            cx.f_sin()
+        } else if fid == F_COS {
+            cx.f_cos()
+        } else if fid == F_TAN {
+            cx.f_tan()
+        } else if fid == F_ATAN {
+            cx.f_atan()
+        } else if fid == F_ASIN or fid == F_ACOS {
+            fn_asin()
+            if fid == F_ACOS
+                cx.f_rsub(&kpi2)         ; acos x = pi/2 - asin x
+        }
+    }
+
+    ; asin x = atan(x / sqrt(1 - x*x)), with the two ends done by hand
+    sub fn_asin() {
+        cx.f_store(&acc3)                ; acc3 = x
+        cx.f_mul(&acc3)                  ; x * x
+        cx.f_rsub(&k1)                   ; 1 - x*x
+        if cx.f_sgn() == $FF {
+            seterr(E_ERR)                ; |x| > 1
+            cx.f_zero()
+            return
+        }
+        if fac_is_zero() {               ; |x| = 1 -> +/- pi/2
+            cx.f_load(&acc3)
+            ubyte sign_ = cx.f_sgn()
+            cx.f_load(&kpi2)
+            if sign_ == $FF
+                cx.f_neg()
+            return
+        }
+        cx.f_sqrt()
+        cx.f_store(&acc2)
+        cx.f_load(&acc3)
+        cx.f_div(&acc2)
+        cx.f_atan()
+    }
+
+    sub p_func() {
+        ubyte n = 0
+        while n < 7 {
+            ubyte a = alpha_idx(@(pp))
+            if a == 255 {
+                ; @LOG10 has digits in its name, so accept them after the
+                ; first letter
+                if n != 0 and is_digit(@(pp)) {
+                    fnbuf[n] = @(pp)
+                    n++
+                    pp++
+                    continue
+                }
+                break
+            }
+            fnbuf[n] = a + 'A'
+            n++
+            pp++
+        }
+        ubyte fid = func_id(n)
+        if fid == 0 {
+            seterr(E_ERR)
+            cx.f_zero()
+            return
+        }
+
+        ; @PI, @ERROR and @NA stand alone -- VisiCalc writes them without
+        ; parentheses, but empty ones are accepted too
+        if fid >= F_PI {
+            if @(pp) == '(' {
+                pp++
+                p_skipws()
+                if @(pp) != ')' {
+                    seterr(E_ERR)
+                    cx.f_zero()
+                    return
+                }
+                pp++
+            }
+            if fid == F_PI {
+                cx.f_load(&kpi)
+            } else {
+                if fid == F_ERROR
+                    seterr(E_ERR)
+                else
+                    seterr(E_NA)
+                cx.f_zero()
+            }
+            return
+        }
+
+        if @(pp) != '(' {
+            seterr(E_ERR)
+            cx.f_zero()
+            return
+        }
+        pp++
+        p_skipws()
+
+        ; @NPV and @LOOKUP take a value, a comma, and then the range
+        if fid == F_NPV or fid == F_LOOKUP {
+            bpush(fid)
+            p_expr()
+            fid = bpop()
+            p_skipws()
+            if @(pp) != ',' {
+                seterr(E_ERR)
+                cx.f_zero()
+                return
+            }
+            pp++
+            p_skipws()
+            if not scan_range() {
+                seterr(E_ERR)
+                cx.f_zero()
+                return
+            }
+            if fid == F_NPV
+                npv_range(rng_c1, rng_r1, rng_c2, rng_r2)
+            else
+                lookup_range(rng_c1, rng_r1, rng_c2, rng_r2)
+            p_skipws()
+            if @(pp) != ')' {
+                seterr(E_ERR)
+                return
+            }
+            pp++
+            return
+        }
+
+        ; every other function takes either a range or a single value
+        uword save = pp
+        bool is_range = scan_range()
+        if not is_range
+            pp = save
+
+        if is_range {
+            if fid > F_AVG {
+                seterr(E_ERR)            ; a value function, given a range
+                cx.f_zero()
+                return
+            }
+            range_walk(fid, rng_c1, rng_r1, rng_c2, rng_r2)
+        } else {
+            if fid <= F_LOOKUP and fid != F_SUM {
+                seterr(E_ERR)            ; a range function, given a value
+                cx.f_zero()
+                return
+            }
+            bpush(fid)
+            p_expr()
+            fid = bpop()
+            apply_fn(fid)                ; @SUM of one value is that value
+        }
+        p_skipws()
+        if @(pp) != ')' {
+            seterr(E_ERR)
+            return
+        }
+        pp++
+    }
+
+    ; A1...B5 at pp -> rng_*, pp moved past it
+    uword rng_c1
+    uword rng_r1
+    uword rng_c2
+    uword rng_r2
+
+    sub scan_range() -> bool {
+        ubyte k = refabs(pp)
+        if k == 0
+            return false
+        rng_c1 = ref_c
+        rng_r1 = ref_r
+        uword q = pp + k
+        if @(q) != '.'
+            return false
+        while @(q) == '.'
+            q++
+        k = refabs(q)
+        if k == 0
+            return false
+        rng_c2 = ref_c
+        rng_r2 = ref_r
+        pp = q + k
+        return true
     }
 
     sub p_prim() {
         pdepth++
         if pdepth > MAXDEPTH {
-            perr = 1
+            seterr(E_ERR)
             cx.f_zero()
             pdepth--
             return
@@ -790,7 +1159,7 @@ kk {
         p_skipws()
         ubyte ch = @(pp)
         if ch == 0 {
-            perr = 1
+            seterr(E_ERR)
             cx.f_zero()
             pdepth--
             return
@@ -819,7 +1188,7 @@ kk {
             if @(pp) == ')' {
                 pp++
             } else {
-                perr = 1
+                seterr(E_ERR)
             }
             pdepth--
             return
@@ -857,7 +1226,7 @@ kk {
                 cx.f_mul(a)
             } else {
                 if fac_is_zero() {
-                    perr = 1
+                    seterr(E_ERR)
                     void fpop()
                     cx.f_zero()
                     return
@@ -871,7 +1240,7 @@ kk {
     sub p_expr() {
         pdepth++
         if pdepth > MAXDEPTH {
-            perr = 1
+            seterr(E_ERR)
             cx.f_zero()
             pdepth--
             return
@@ -964,7 +1333,10 @@ kk {
                 load_ebuf(idx)
                 eval_ebuf()
                 ubyte nt = T_FORM
-                if perr != 0 {
+                if perr == E_NA {
+                    nt = T_FNA
+                    cx.f_zero()
+                } else if perr != 0 {
                     nt = T_FERR
                     cx.f_zero()
                 }
@@ -1143,6 +1515,10 @@ kk {
         }
         if t == T_FERR {
             pad_right(&s_error, 5, out, w)
+            return
+        }
+        if t == T_FNA {
+            pad_right(&s_na, 2, out, w)
             return
         }
 

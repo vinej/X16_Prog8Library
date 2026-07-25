@@ -34,6 +34,8 @@ main {
         test_replicate()
         test_shift()
         test_banks()
+        test_visicalc()
+        test_lookup()
 
         nl()
         if fails == 0
@@ -87,7 +89,11 @@ main {
         kk.ebuf[n] = 0
         kk.eval_ebuf()
         ubyte m = 0
-        if kk.perr != 0 {
+        if kk.perr == kk.E_NA {
+            want[0] = 'N'
+            want[1] = 'A'
+            m = 2
+        } else if kk.perr != 0 {
             want[0] = 'E'
             want[1] = 'R'
             want[2] = 'R'
@@ -423,5 +429,120 @@ main {
             i++
         }
         return @(expect + n) == 0
+    }
+
+    ; ---- the VisiCalc function set ------------------------------------
+    str t_vc = "visicalc fns"
+    str vc1 = "10"
+    str vc2 = "30"
+    str vc3 = "20"
+    str e_min   = "@MIN(A1...A3)"
+    str e_max   = "@MAX(A1...A3)"
+    str e_cnt   = "@COUNT(A1...A3)"
+    str e_avg   = "@AVERAGE(A1...A3)"
+    str e_avg2  = "@AVG(A1...A3)"
+    str e_sum   = "@SUM(A1...A3)"
+    str e_pi    = "@PI"
+    str e_pi2   = "@PI()"
+    str e_sin   = "@SIN(0)"
+    str e_cos   = "@COS(0)"
+    str e_tan   = "@TAN(0)"
+    str e_exp   = "@EXP(0)"
+    str e_ln1   = "@LN(1)"
+    str e_ln0   = "@LN(0)"
+    str e_lg1   = "@LOG10(1)"
+    str e_atan0 = "@ATAN(0)"
+    str e_asin0 = "@ASIN(0)"
+    str e_asin1 = "@ASIN(1)"
+    str e_acos1 = "@ACOS(1)"
+    str e_asin2 = "@ASIN(2)"
+    str e_npv   = "@NPV(0,A1...A3)"
+    str e_na    = "@NA"
+    str e_naadd = "+@NA+1"
+    str e_err   = "@ERROR"
+    str e_bogus = "@NOPE(1)"
+    str e_rngv  = "@MIN(5)"
+
+    str v10 = "10"
+    str v30 = "30"
+    str x60 = "60"
+    str x3c = "3"
+    str v20 = "20"
+    str xpi = "3.14159265"
+    str xhpi = "1.57079633"
+    str v0 = "0"
+    str v1 = "1"
+    str xna = "NA"
+    str xerrv = "ERR"
+
+    sub test_visicalc() {
+        note(&t_vc)
+        kk.clear_all()
+        put(0, 0, &vc1)                 ; A1 = 10
+        put(0, 1, &vc2)                 ; A2 = 30
+        put(0, 2, &vc3)                 ; A3 = 20
+        kk.recalc()
+
+        evals(&e_min, &v10)
+        evals(&e_max, &v30)
+        evals(&e_cnt, &x3c)
+        evals(&e_avg, &v20)
+        evals(&e_avg2, &v20)
+        evals(&e_sum, &x60)
+        evals(&e_npv, &x60)             ; rate 0 discounts by 1 each period
+
+        evals(&e_pi, &xpi)              ; VisiCalc writes @PI bare
+        evals(&e_pi2, &xpi)             ; ...empty parens work too
+        evals(&e_sin, &v0)
+        evals(&e_cos, &v1)
+        evals(&e_tan, &v0)
+        evals(&e_exp, &v1)
+        evals(&e_ln1, &v0)
+        evals(&e_lg1, &v0)
+        evals(&e_atan0, &v0)
+        evals(&e_asin0, &v0)
+        evals(&e_asin1, &xhpi)
+        evals(&e_acos1, &v0)
+
+        evals(&e_ln0, &xerrv)           ; ln of zero: guarded, not a ROM trap
+        evals(&e_asin2, &xerrv)         ; asin outside -1..1
+        evals(&e_bogus, &xerrv)         ; unknown name
+        evals(&e_rngv, &xerrv)          ; a range function given a value
+
+        evals(&e_na, &xna)
+        evals(&e_naadd, &xna)           ; @NA propagates through arithmetic
+        evals(&e_err, &xerrv)
+    }
+
+    ; ---- @LOOKUP ------------------------------------------------------
+    str t_lk = "lookup"
+    str lk0 = "0"
+    str lk10 = "10"
+    str lk20 = "20"
+    str lka = "100"
+    str lkb = "200"
+    str lkc = "300"
+    str e_lk1 = "@LOOKUP(0,A1...A3)"
+    str e_lk2 = "@LOOKUP(15,A1...A3)"
+    str e_lk3 = "@LOOKUP(99,A1...A3)"
+    str e_lk4 = "@LOOKUP(-1,A1...A3)"
+    str x100 = "100"
+    str x200 = "200"
+    str x300 = "300"
+
+    sub test_lookup() {
+        note(&t_lk)
+        kk.clear_all()
+        put(0, 0, &lk0)                 ; A1..A3 = 0, 10, 20  (the keys)
+        put(0, 1, &lk10)
+        put(0, 2, &lk20)
+        put(1, 0, &lka)                 ; B1..B3 = 100, 200, 300 (the values)
+        put(1, 1, &lkb)
+        put(1, 2, &lkc)
+        kk.recalc()
+        evals(&e_lk1, &x100)            ; exact hit on the first key
+        evals(&e_lk2, &x200)            ; falls back to the 10 row
+        evals(&e_lk3, &x300)            ; past the end: the last row
+        evals(&e_lk4, &xna)             ; below every key: @NA
     }
 }

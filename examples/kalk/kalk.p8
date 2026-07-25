@@ -6,7 +6,8 @@
 ;
 ;   .\build.ps1 examples\kalk\kalk.p8 -Run
 ;
-; Arrow keys move.  Type a number, a formula (+ - ( @) or a label.
+; Arrow keys move, or click a cell with the mouse.  Type a number, a
+; formula (+ - ( @) or a label.
 ; Press / for the command menu, > to jump to a cell, ! to recalculate,
 ; Run/Stop to quit.  The sheet is A..Z x 1..256, held in RAM banks 1-8;
 ; CSV files are read and written on device 8.
@@ -67,6 +68,8 @@ main {
     ubyte fnlen
     ubyte[20] rngbuf
 
+    bool  mouse_down                    ; the button was already down last poll
+
     ubyte sel_c1
     ubyte sel_r1
     ubyte sel_c2
@@ -83,6 +86,7 @@ main {
     str s_gt    = ">"
     str s_eq    = " = "
     str s_eqerr = " = ERROR"
+    str s_eqna  = " = NA"
     str s_help  = " /=cmd  >=goto  !=recalc  \"=label  Del=clear  Tab/Ret=move  Stop=quit"
     str s_cmd   = "Command: B)lank C)lear D)elete I)nsert F)ormat G)lobal M)ove R)epl S)torage Q)uit"
     str s_askrc = "(R)ow or (C)olumn?"
@@ -220,6 +224,66 @@ main {
         return s
     }
 
+; =====================================================================
+; mouse
+;
+; The KERNAL tracks the pointer in its own interrupt once MOUSE_CONFIG
+; has enabled it, so reading it is just cx.mouse_get: the position lands
+; in X16_P0..P3 and the buttons come back in A.
+; =====================================================================
+
+    ; Which cell is under a pixel position? Characters are 8x8, the grid
+    ; starts below the three header lines and to the right of the row
+    ; gutter, and col_at/row_at already account for any locked titles.
+    ; -> false if the point is not over a cell, leaving the cursor alone.
+    sub mouse_hit(uword mx, uword my) -> bool {
+        ubyte sr = lsb(my >> 3)
+        ubyte sc = lsb(mx >> 3)
+        if sr < 3 or sc < GW
+            return false                ; status, edit line, headers, gutter
+        ubyte ri = sr - 3
+        if ri >= tr + freerows()
+            return false
+        ubyte ci = (sc - GW) / kk.cw
+        if ci >= tc + freecols()
+            return false
+        uword r = row_at(ri)
+        if r >= kk.NROW
+            return false
+        ubyte c = col_at(ci)
+        if c >= kk.NCOL
+            return false
+        cc = c
+        cr = lsb(r)
+        return true
+    }
+
+    ; -> true when a click just moved the cursor. Only the press edge
+    ; counts, so holding the button does not re-select every poll.
+    sub mouse_pick() -> bool {
+        ubyte btn = cx.mse_get()
+        if btn & 1 == 0 {
+            mouse_down = false
+            return false
+        }
+        if mouse_down
+            return false
+        mouse_down = true
+        return mouse_hit(peekw(x16c.X16_P0), peekw(x16c.X16_P0 + 2))
+    }
+
+    ; Block until something happens: a key, or a click that picked a cell.
+    ; -> the key, or 0 when the mouse moved the cursor instead.
+    sub wait_event() -> ubyte {
+        while true {
+            ubyte k = cx.key_get()
+            if k != 0
+                return k
+            if mouse_pick()
+                return 0
+        }
+    }
+
     sub curidx() -> uword {
         return kk.cidx(cc, cr)
     }
@@ -249,6 +313,8 @@ main {
             k = lb_text(k, &sbuf, kk.num_general(&sbuf))
         } else if t == kk.T_FERR {
             k = lb_z(k, &s_eqerr)
+        } else if t == kk.T_FNA {
+            k = lb_z(k, &s_eqna)
         }
         ubyte i = 0
         while i < 5 {
@@ -1303,6 +1369,10 @@ main {
         cx.load_banks()
         void cx.screen_set_mode(0)          ; 80x60 text
         cx.screen_charset(3)                ; PET upper/lower: both cases visible
+        ; MOUSE_CONFIG with a size of 0 keeps whatever bounds are already
+        ; set, and on a fresh boot there are none -- so give it the real
+        ; screen, 80x60 cells of 8 pixels, or the pointer never appears.
+        cx.mse_config(1, 80, 60)            ; KERNAL pointer sprite
         kk.init()
         modez = &m_ready
         fnlen = 0
@@ -1352,7 +1422,9 @@ main {
             oc = cc
             orow = cr
 
-            ubyte ch = cx.key_wait()
+            ubyte ch = wait_event()
+            if ch == 0
+                continue                ; the mouse picked a cell; redraw
             if ch == K_STOP
                 break
             if ch == K_UP {
@@ -1405,6 +1477,7 @@ main {
             }
         }
 
+        cx.mse_hide()
         cx.screen_reset()                   ; CINT: default mode, charset, colours
     }
 }

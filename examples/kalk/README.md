@@ -49,6 +49,14 @@ A **26 x 256** sheet (A..Z, rows 1-256) in 80x60 text. Type a number, a formula
 advance, `>` jumps to a cell, `!` recalculates, `Del` clears a cell,
 `Run/Stop` quits.
 
+**Click a cell to select it.** The KERNAL tracks the pointer in its own
+interrupt, so the main loop just polls `cx.mse_get` alongside a non-blocking
+`cx.key_get`; only the press edge counts, so holding the button does not
+re-select. Clicks land on cells only — the status lines, column headers and row
+gutter ignore them — and the hit test goes through the same `col_at`/`row_at`
+mapping as drawing, so it stays right when the sheet is scrolled or has locked
+titles. The menus and cell entry are keyboard-driven.
+
 A label wider than its column **spills into the columns to its right**, for as
 far as they are empty; the first occupied neighbour cuts it off, exactly where
 the text would have collided. Numbers never spill — they are truncated to the
@@ -68,8 +76,30 @@ column. Column letters are centred over their column.
 | `/SL` `/SS` `/SQ` | load / save / save & quit a **CSV** file on device 8 |
 | `/Q` | quit |
 
-Formulas: `+A1*B2-3`, `(A1+A2)/2`, `@SUM(A1...A10)`, `@ABS(x)`, `@INT(x)`,
-`@SQRT(x)`, with `$` for absolute references (`$A$1`, `$A1`, `A$1`).
+Formulas: `+A1*B2-3`, `(A1+A2)/2`, with `$` for absolute references (`$A$1`,
+`$A1`, `A$1`). The function set is VisiCalc's:
+
+| | |
+|---|---|
+| over a range | `@SUM` `@MIN` `@MAX` `@COUNT` `@AVERAGE` (or `@AVG`) |
+| | `@NPV(rate, range)` — each flow discounted one more period than the last |
+| | `@LOOKUP(value, range)` — the last key at or below `value`, answered from the next column (or row, for a horizontal range) |
+| over a value | `@ABS` `@INT` `@SQRT` `@EXP` `@LN` `@LOG10` |
+| | `@SIN` `@COS` `@TAN` `@ASIN` `@ACOS` `@ATAN` |
+| on their own | `@PI` `@ERROR` `@NA` — written bare, as VisiCalc does, though empty parentheses are accepted |
+
+`@NA` and `@ERROR` propagate: a formula that reads an `@NA` cell is itself
+`@NA`, one that reads an `@ERROR` cell is `@ERROR`, and `@ERROR` wins when a
+formula meets both. Domains that would otherwise drop into the ROM's own error
+handler and abandon the program are caught first — `@LN` and `@LOG10` of zero
+or less, `@SQRT` of a negative, `@ASIN`/`@ACOS` outside -1..1, and division by
+zero — and show as `ERROR`.
+
+The angle functions work in radians and come free: the whole ROM floating-point
+module is already linked for the arithmetic, so `f_sin`, `f_cos`, `f_tan`,
+`f_atan`, `f_ln` and `f_exp` were sitting in the binary unused. `@LOG10` is
+`@LN` scaled by 1/ln 10, and `@ASIN` is `@ATAN(x / @SQRT(1 - x*x))` with the
+two endpoints done by hand.
 
 `ORDER.CSV` is a sample sheet. `build.ps1` copies it into `build\`, which is
 where `-Run` points the emulator's `-fsroot`, so `/SL` and typing `order.csv`
@@ -118,6 +148,9 @@ Measured on the emulator, with every visible cell holding a number:
 | **scroll one row** | **0.071 s** |
 | full repaint — after an edit, a jump, a width change | 0.62 s |
 | insert a row at the top: 255 rows moved across all eight banks, every formula's references rewritten, full recalculation | 0.83 s |
+
+The whole program leaves about **1.7 KB of low RAM free**; the full VisiCalc
+function set cost 2.3 KB of that.
 
 The full repaint is dominated by number formatting, not by drawing: of that
 0.62 s, **0.54 s is the ROM's float-to-string conversion**, called once per
