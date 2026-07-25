@@ -26,11 +26,15 @@ This page expands the compact listing from `macroguide.md`. Macro arguments are 
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; reset the chip, load the default patches
         cx.ym_init()
     }
 }
+
 ```
 
 ## `cx.ym_write(reg, val) / cx.ym_poke(reg, val)`
@@ -47,11 +51,16 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.ym_write(reg, val)
+        ; raw register write / shadowed write
+        cx.ym_write($20, $20)
+        cx.ym_poke($20, $20)
     }
 }
+
 ```
 
 ## `cx.ym_patch_rom(channel, index)`
@@ -68,11 +77,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.ym_patch_rom(channel, index)
+        ; load a built-in ROM patch (0-162)
+        cx.ym_patch_rom(0, 1)
     }
 }
+
 ```
 
 ## `cx.ym_note(channel, kc, kf)`
@@ -89,11 +102,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.ym_note(channel, kc, kf)
+        ; play a raw key code
+        cx.ym_note(0, $4c, 0)
     }
 }
+
 ```
 
 ## `cx.ym_note_bas(channel, note)`
@@ -110,11 +127,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.ym_note_bas(channel, note)
+        ; play a packed note (0 releases)
+        cx.ym_note_bas(0, 60)
     }
 }
+
 ```
 
 ## `cx.ym_release_note(channel)`
@@ -131,11 +152,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.ym_release_note(channel)
+        ; release
+        cx.ym_release_note(0)
     }
 }
+
 ```
 
 ## `cx.ym_vol(channel, atten) / cx.ym_pan(channel, pan)`
@@ -152,11 +177,16 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.ym_vol(channel, atten)
+        ; volume / pan
+        cx.ym_vol(0, 1)
+        cx.ym_pan(0, $c0)
     }
 }
+
 ```
 
 ## `cx.ym_drum(channel, note)`
@@ -173,9 +203,62 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.ym_drum(channel, note)
+        ; a drum voice
+        cx.ym_drum(0, 60)
     }
 }
+
 ```
+
+<!-- generated: friendly macros for previously unwrapped routines -->
+
+## More of ym
+
+These routines were always in the library; what they lacked was a
+friendly macro, so this is how to call them without writing the
+register set-up by hand. Most of them work on their module's own
+accumulator rather than on arguments.
+
+## `cx.ym_busy()`
+
+| Field | Details |
+|---|---|
+| Macro | `cx.ym_busy()` |
+| Purpose | carry set while the chip is busy |
+| Input parameters | None — operates on the module's own state. |
+| Output parameters | Returns the carry flag. |
+| More info | Available when `X16_USE_YM` is enabled. |
+
+## `cx.ym_get_pan(channel)`
+
+| Field | Details |
+|---|---|
+| Macro | `cx.ym_get_pan(channel)` |
+| Purpose | X = pan setting |
+| Input parameters | `channel` |
+| Output parameters | Returns `X`. |
+| More info | Available when `X16_USE_YM` is enabled. |
+
+## `cx.ym_get_vol(channel)`
+
+| Field | Details |
+|---|---|
+| Macro | `cx.ym_get_vol(channel)` |
+| Purpose | X = attenuation |
+| Input parameters | `channel` |
+| Output parameters | Returns `X`. |
+| More info | Available when `X16_USE_YM` is enabled. |
+
+## `cx.ym_patch_ram(channel, addr)`
+
+| Field | Details |
+|---|---|
+| Macro | `cx.ym_patch_ram(channel, addr)` |
+| Purpose | load an instrument |
+| Input parameters | `channel`, `addr` |
+| Output parameters | Returns the carry flag. |
+| More info | Available when `X16_USE_YM` is enabled. |

@@ -26,11 +26,15 @@ This page expands the compact listing from `macroguide.md`. Macro arguments are 
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; initialize ADPCM state
         cx.adpcm_init()
     }
 }
+
 ```
 
 ## `cx.adpcm_nibble(code)`
@@ -47,11 +51,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.adpcm_nibble(code)
+        ; decode one ADPCM nibble
+        cx.adpcm_nibble('A')
     }
 }
+
 ```
 
 ## `cx.adpcm_block(src, dst, count)`
@@ -68,9 +76,18 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.adpcm_block(src, dst, count)
+        ; decode a block
+        cx.adpcm_block(source_text, work_buffer, 32)
     }
 }
+
+%asm {{
+    source_text  !text "LEVEL/01", 0
+    work_buffer !fill 64, 0
+}}
+
 ```

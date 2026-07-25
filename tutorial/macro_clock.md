@@ -26,11 +26,15 @@ This page expands the compact listing from `macroguide.md`. Macro arguments are 
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; Set and read the KERNAL clock.
         cx.clock_update()
     }
 }
+
 ```
 
 ## `cx.clock_get_timer() / cx.clock_set_timer(ticks)`
@@ -47,11 +51,16 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; Set and read the KERNAL clock.
         cx.clock_get_timer()
+        cx.clock_set_timer(1)
     }
 }
+
 ```
 
 ## `cx.clock_get_date_time()`
@@ -68,11 +77,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; Set and read the KERNAL clock.
         cx.clock_get_date_time()
     }
 }
+
 ```
 
 ## `cx.clock_set_date_time_raw(year1900, month, day, hours, minutes, seconds, jiffies, weekday)`
@@ -89,11 +102,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.clock_set_date_time_raw(year1900, month, day, hours, minutes, seconds, jiffies, weekday)
+        ; Set and read the KERNAL clock.
+        cx.clock_set_date_time_raw(126, 7, 24, 14, 30, 0, 0, 5)
     }
 }
+
 ```
 
 ## `cx.clock_set_date_time(year, month, day, hours, minutes, seconds, weekday)`
@@ -110,9 +127,13 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.clock_set_date_time(year, month, day, hours, minutes, seconds, weekday)
+        ; Set and read the KERNAL clock.
+        cx.clock_set_date_time(2026, 7, 24, 14, 30, 0, 5)
     }
 }
+
 ```

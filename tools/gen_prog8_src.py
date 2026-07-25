@@ -134,10 +134,140 @@ def gen_consts(sym):
 PBLOCK = {f"X16_P{k}": 0x22 + k for k in range(8)}
 RET = {
     "A":  ("ubyte", "ret8",  ["sta p8v_ret8"]),
+    "X":  ("ubyte", "ret8",  ["stx p8v_ret8"]),
+    "Y":  ("ubyte", "ret8",  ["sty p8v_ret8"]),
     "AX": ("uword", "ret16", ["sta p8v_ret16", "stx p8v_ret16+1"]),
     "AY": ("uword", "ret16", ["sta p8v_ret16", "sty p8v_ret16+1"]),
+    "XY": ("uword", "ret16", ["stx p8v_ret16", "sty p8v_ret16+1"]),
     "Pc": ("bool",  "retbit", ["lda #0", "rol  a", "sta p8v_retbit"]),
 }
+
+# ---------------------------------------------------------------------
+# What a routine gives back.
+#
+# sugar.asm only carries a "-> ..." note where somebody wrote one, so the
+# authoritative source is the routine's own header in the library. Those
+# headers say "out: A = ...", "out: carry set if ...", or just "carry set
+# if ..." -- and one header often covers several routines at once, so the
+# text has to be split by routine name before it is read, or a sibling's
+# outputs get attributed to the wrong wrapper.
+# ---------------------------------------------------------------------
+ROUTINE_DOC = {}                     # routine -> its header block, as a list
+ROUTINE_NAMES = set()
+
+def collect_headers(base):
+    for root, _dirs, files in os.walk(base):
+        if "tutorial" in root:
+            continue
+        for fn in files:
+            if not fn.endswith(".asm"):
+                continue
+            lines = open(os.path.join(root, fn), encoding="utf-8",
+                         errors="replace").read().split("\n")
+            blocks, block = [], []
+            for i, ln in enumerate(lines):
+                if ln.startswith(";"):
+                    block.append(ln)
+                else:
+                    if block:
+                        blocks.append((i, block))
+                    block = []
+            for i, ln in enumerate(lines):
+                m = re.match(r"^([a-z_][a-z0-9_]*)\s*$", ln)
+                if not m:
+                    continue
+                name = m.group(1)
+                for end_ln, blk in blocks:
+                    if end_ln <= i and any(re.search(r"\b" + name + r"\b", b) for b in blk):
+                        ROUTINE_DOC[name] = blk
+
+def _segment(name, blk):
+    """The part of a shared header block that describes `name`.
+
+    Headers commonly cover a family at once:
+
+        ; gfx8h_pset / gfx8h_read -- clipped pixel access
+        ;   pset in: A = colour, ...
+        ;   read out: carry clear, A = colour; carry set if off screen
+
+    so a line tagged with a sibling's short name must not be read as ours.
+    """
+    siblings = set()
+    for b in blk:
+        for w in re.findall(r"\b([a-z_][a-z0-9_]{3,})\b", b):
+            if w in ROUTINE_NAMES and w != name:
+                siblings.add(w)
+    # Such a block tags its lines with whatever part of the name tells the
+    # family apart -- "read" vs "pset" at the end, "get" vs "set" in the
+    # middle -- so compare on name components, and only on the ones that
+    # actually distinguish us from our siblings.
+    own_parts = set(name.split("_"))
+    sib_parts = set()
+    for sib in siblings:
+        sib_parts |= set(sib.split("_"))
+    own_tags = {name} | (own_parts - sib_parts)
+    sib_tags = siblings | (sib_parts - own_parts)
+
+    out, mine = [], not siblings          # a lone routine owns the whole block
+    for b in blk:
+        tag = re.match(r";\s*(\w+)\s+(?:in|out):", b)
+        if tag:
+            t = tag.group(1)
+            if t in own_tags:
+                mine = True
+            elif t in sib_tags or t in siblings:
+                mine = False
+        elif re.search(r"\b" + name + r"\b", b):
+            mine = True
+        elif any(re.search(r"\b" + sib + r"\b", b) for sib in siblings):
+            mine = False
+        if mine:
+            out.append(b)
+    return " ".join(out)
+
+def doc_return(target):
+    """One of RET's keys, or None when the header is not clear enough.
+
+    Silence is the safe answer: a wrapper with no return type is merely
+    inconvenient, one with the wrong type is a bug in every program that
+    trusts it. Anything ambiguous -- a routine that documents both a carry
+    and a register, say -- is left for an explicit "-> ..." note in
+    sugar.asm, where a person decides which one the caller wants.
+    """
+    blk = ROUTINE_DOC.get(target)
+    if not blk:
+        return None
+    seg = _segment(target, blk)
+    m = re.search(r"out:(.*)", seg)
+    tail = (m.group(1) if m else seg).split("Behind ")[0]
+
+    has_carry = bool(re.search(r"\bcarry (set|clear)\b", tail))
+    regs = re.search(r"\bA\b\s*=", tail), re.search(r"\bX\b\s*=", tail), \
+           re.search(r"\bY\b\s*=", tail)
+    has_reg = any(regs)
+
+    if has_carry and has_reg:
+        return None                       # needs a human: see the docstring
+    if has_carry:
+        return "Pc"
+    if not m:
+        return None                       # no "out:" line at all
+    lo_hi = lambda r1, r2: re.search(
+        r"\b" + r1 + r"\b\s*=[^,;]*\blow\b.*\b" + r2 + r"\b\s*=[^,;]*\bhigh\b", tail)
+    if lo_hi("A", "X") or re.search(r"\bA/X\b|\bAX\b", tail):
+        return "AX"
+    if lo_hi("A", "Y") or re.search(r"\bA/Y\b|\bAY\b", tail):
+        return "AY"
+    if regs[1] and regs[2] and not regs[0]:
+        return "XY"
+    if regs[0]:
+        return "A"
+    if regs[1]:
+        return "X"
+    if regs[2]:
+        return "Y"
+    return None
+
 RESERVED = set("""a x y if for while do when sub asmsub extsub return goto true
 false and or not xor as to in step downto void ubyte byte uword word long float
 str bool const struct enum alias inline private call on repeat unroll break
@@ -231,15 +361,20 @@ def translate(mc):
     params = [(a, "uword" if is16[a] else "ubyte") for a in mc.args if a in used]
     ret = None
     dm = re.search(r"->\s*(.*)", " ".join(mc.doc))
-    if dm:
+    if dm:                                   # an explicit note in sugar.asm wins
         r = dm.group(1)
         if re.search(r"\bA/X\b|\bAX\b", r): ret = "AX"
         elif re.search(r"\bA/Y\b|\bAY\b", r): ret = "AY"
         elif re.search(r"carry|@ ?Pc", r): ret = "Pc"
         elif re.search(r"\bA\b", r): ret = "A"
+    if ret is None:                          # otherwise ask the routine's header
+        ret = doc_return(target)
     return params, asm, ret, target
 
 def gen_lib(macros, routine_gate):
+    ROUTINE_NAMES.update(routine_gate.keys())
+    collect_headers(os.path.join(XLIB, "src_acme"))
+
     # ---- first pass: collect the wrappers (need all gates for weak defaults) --
     wrappers, seen, gated = [], set(), {}
     for mc in macros:

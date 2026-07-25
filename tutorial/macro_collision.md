@@ -26,11 +26,15 @@ This page expands the compact listing from `macroguide.md`. Macro arguments are 
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.collide8(ax, ay, aw, ah, bx, by, bw, bh)
+        ; 8-bit AABB test; -> carry set if overlap
+        cx.collide8(1, 1, 1, 1, 1, 1, 1, 1)
     }
 }
+
 ```
 
 ## `cx.collide16(...)`
@@ -47,9 +51,13 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.collide16()
+        ; 16-bit AABB test; -> carry set if overlap
+        cx.collide16(1, 1, 1, 1, 1, 1, 1, 1)
     }
 }
+
 ```

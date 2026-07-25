@@ -26,11 +26,16 @@ This page expands the compact listing from `macroguide.md`. Macro arguments are 
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; Place sprite 0 over a player start position.
         cx.sprites_on()
+        cx.sprites_off()
     }
 }
+
 ```
 
 ## `cx.sprite_init_all()`
@@ -47,11 +52,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; Place sprite 0 over a player start position.
         cx.sprite_init_all()
     }
 }
+
 ```
 
 ## `cx.sprite_pos(sprite, x, y)`
@@ -68,11 +77,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.sprite_pos(sprite, x, y)
+        ; Place sprite 0 over a player start position.
+        cx.sprite_pos(1, 32, 40)
     }
 }
+
 ```
 
 ## `cx.sprite_get_pos(sprite)`
@@ -89,11 +102,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.sprite_get_pos(sprite)
+        ; Place sprite 0 over a player start position.
+        cx.sprite_get_pos(1)
     }
 }
+
 ```
 
 ## `cx.sprite_image(sprite, vaddr, mode)`
@@ -110,11 +127,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.sprite_image(sprite, vaddr, mode)
+        ; Place sprite 0 over a player start position.
+        cx.sprite_image(1, $10000, 0)
     }
 }
+
 ```
 
 ## `cx.sprite_flags(sprite, flags)`
@@ -131,11 +152,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.sprite_flags(sprite, flags)
+        ; Place sprite 0 over a player start position.
+        cx.sprite_flags(1, 1)
     }
 }
+
 ```
 
 ## `cx.sprite_z(sprite, z)`
@@ -152,11 +177,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.sprite_z(sprite, z)
+        ; Place sprite 0 over a player start position.
+        cx.sprite_z(1, 1)
     }
 }
+
 ```
 
 ## `cx.sprite_size(sprite, wcode, hcode, paloff)`
@@ -173,9 +202,13 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.sprite_size(sprite, wcode, hcode, paloff)
+        ; Place sprite 0 over a player start position.
+        cx.sprite_size(1, 1, 1, 0)
     }
 }
+
 ```

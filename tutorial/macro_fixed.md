@@ -26,11 +26,15 @@ This page expands the compact listing from `macroguide.md`. Macro arguments are 
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.umul16(a, b)
+        ; unsigned 16x16 multiply; -> P4..P7 = product
+        cx.umul16($20, $a0)
     }
 }
+
 ```
 
 ## `cx.mul88(a, b)`
@@ -47,9 +51,13 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.mul88(a, b)
+        ; signed 8.8 multiply; -> P0/1
+        cx.mul88($20, $a0)
     }
 }
+
 ```

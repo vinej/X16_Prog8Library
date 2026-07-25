@@ -26,11 +26,16 @@ This page expands the compact listing from `macroguide.md`. Macro arguments are 
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; initialize console
         cx.con_init_fullscreen()
+        cx.con_init(32, 40, 96, 64)
     }
 }
+
 ```
 
 ## `cx.con_set_paging_message(msg) / cx.con_disable_paging()`
@@ -47,11 +52,16 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.con_set_paging_message(msg)
+        ; paging controls
+        cx.con_set_paging_message(1)
+        cx.con_disable_paging()
     }
 }
+
 ```
 
 ## `cx.con_put_char_wrap(char) / cx.con_put_char_word(char)`
@@ -68,11 +78,16 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.con_put_char_wrap(char)
+        ; print with wrapping
+        cx.con_put_char_wrap(1)
+        cx.con_put_char_word(1)
     }
 }
+
 ```
 
 ## `cx.con_get_char()`
@@ -89,11 +104,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; read one console character
         cx.con_get_char()
     }
 }
+
 ```
 
 ## `cx.con_put_image(image, w, h)`
@@ -110,9 +129,13 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.con_put_image(image, w, h)
+        ; draw console image data
+        cx.con_put_image(1, 96, 64)
     }
 }
+
 ```

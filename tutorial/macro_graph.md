@@ -26,11 +26,16 @@ This page expands the compact listing from `macroguide.md`. Macro arguments are 
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; init GRAPH with default/custom FB driver
         cx.graph_init_default()
+        cx.graph_init(1)
     }
 }
+
 ```
 
 ## `cx.graph_clear() / cx.graph_set_window(x, y, w, h)`
@@ -47,11 +52,16 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; clear/window
         cx.graph_clear()
+        cx.graph_set_window(32, 40, 96, 64)
     }
 }
+
 ```
 
 ## `cx.graph_set_colors(stroke, fill, background)`
@@ -68,11 +78,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.graph_set_colors(stroke, fill, background)
+        ; drawing colours
+        cx.graph_set_colors(1, 1, 1)
     }
 }
+
 ```
 
 ## `cx.graph_draw_line(x1, y1, x2, y2)`
@@ -89,11 +103,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.graph_draw_line(x1, y1, x2, y2)
+        ; line
+        cx.graph_draw_line(96, 96, 160, 48)
     }
 }
+
 ```
 
 ## `cx.graph_draw_rect_outline/fill x, y, w, h, radius`
@@ -110,11 +128,16 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.graph_draw_rect_outline()
+        ; rectangles
+        cx.graph_draw_rect_outline(32, 40, 96, 64, 1)
+        cx.graph_draw_rect_fill(32, 40, 96, 64, 1)
     }
 }
+
 ```
 
 ## `cx.graph_move_rect(sx, sy, tx, ty, w, h)`
@@ -131,11 +154,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.graph_move_rect(sx, sy, tx, ty, w, h)
+        ; move rectangle
+        cx.graph_move_rect(8, 16, 40, 16, 96, 64)
     }
 }
+
 ```
 
 ## `cx.graph_draw_oval_outline/fill x, y, w, h`
@@ -152,11 +179,16 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.graph_draw_oval_outline()
+        ; ovals
+        cx.graph_draw_oval_outline(32, 40, 96, 64)
+        cx.graph_draw_oval_fill(32, 40, 96, 64)
     }
 }
+
 ```
 
 ## `cx.graph_draw_image(x, y, image, w, h)`
@@ -173,11 +205,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.graph_draw_image(x, y, image, w, h)
+        ; image bytes
+        cx.graph_draw_image(32, 40, 1, 96, 64)
     }
 }
+
 ```
 
 ## `cx.graph_set_font_default() / cx.graph_set_font(font)`
@@ -194,11 +230,16 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; font
         cx.graph_set_font_default()
+        cx.graph_set_font(1)
     }
 }
+
 ```
 
 ## `cx.graph_get_char_size(char, style) / cx.graph_put_char(char, x, y)`
@@ -215,9 +256,14 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.graph_get_char_size(char, style)
+        ; text metrics/draw
+        cx.graph_get_char_size(1, 1)
+        cx.graph_put_char(1, 32, 40)
     }
 }
+
 ```

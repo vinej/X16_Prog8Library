@@ -26,11 +26,19 @@ This page expands the compact listing from `macroguide.md`. Macro arguments are 
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.bmx_load(name, len, device, vbank, vaddr)
+        ; load BMX image to VRAM
+        cx.bmx_load(file_name, 16, 8, 1, $10000)
     }
 }
+
+%asm {{
+    file_name   !text "SAVEGAME,S,R", 0
+}}
+
 ```
 
 ## `cx.bmx_load_hires(name, len, device)`
@@ -47,10 +55,36 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.gfx8h_init()  ; 640x480 @ 8bpp (needs VERA_2)
-        cx.bmx_load_hires(name, len, device)
+        ; load a BMX image into the VERA_2 640x480 8bpp SDRAM bitmap (the `gfx8h` engine)
+        cx.bmx_load_hires(file_name, 16, 8)
     }
 }
+
+%asm {{
+    file_name   !text "SAVEGAME,S,R", 0
+}}
+
 ```
+
+<!-- generated: friendly macros for previously unwrapped routines -->
+
+## More of bmx
+
+These routines were always in the library; what they lacked was a
+friendly macro, so this is how to call them without writing the
+register set-up by hand. Most of them work on their module's own
+accumulator rather than on arguments.
+
+## `cx.bmx_save(name, len, device, vbank, vaddr)`
+
+| Field | Details |
+|---|---|
+| Macro | `cx.bmx_save(name, len, device, vbank, vaddr)` |
+| Purpose | write a BMX file from VRAM |
+| Input parameters | `name`, `len`, `device`, `vbank`, `vaddr` |
+| Output parameters | Nothing the macro can hand back; see the routine's header. |
+| More info | Available when `X16_USE_BMX` is enabled. |

@@ -424,7 +424,7 @@ x16c {
     const ubyte X16_TPTR3 = $30
     const ubyte X16_ZP = $22
     const ubyte X16_ZP_SIZE = $10
-    const uword YM_BUSY = $6860
+    const uword YM_BUSY = $6996
     const uword YM_DATA = $9F41
     const uword YM_REG = $9F40
     const ubyte YM_TIMEOUT = $80

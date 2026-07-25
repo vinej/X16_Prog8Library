@@ -26,11 +26,20 @@ This page expands the compact listing from `macroguide.md`. Macro arguments are 
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        ; see macro listing above
+        ; Initialize the modem UART and ask ZiModem for the current IP address.
+        cx.zi_init($9f60, SER_BAUD_9600)
+        cx.zi_get_ip(ip_buffer)
     }
 }
+
+%asm {{
+    ip_buffer !fill 40, 0
+}}
+
 ```
 
 ## `cx.zi_init(base, divisor)`
@@ -47,11 +56,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.zi_init(base, divisor)
+        ; Send a ZiModem AT command over the serial card.
+        cx.zi_init($9f60, 12)
     }
 }
+
 ```
 
 ## `cx.zi_cmd(addr)`
@@ -68,11 +81,19 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.zi_cmd(addr)
+        ; Send a ZiModem AT command over the serial card.
+        cx.zi_cmd(work_buffer)
     }
 }
+
+%asm {{
+    work_buffer !fill 64, 0
+}}
+
 ```
 
 ## `cx.zi_wait_ok()`
@@ -89,11 +110,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; Send a ZiModem AT command over the serial card.
         cx.zi_wait_ok()
     }
 }
+
 ```
 
 ## `cx.zi_reset()`
@@ -110,11 +135,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; Send a ZiModem AT command over the serial card.
         cx.zi_reset()
     }
 }
+
 ```
 
 ## `cx.zi_get_ip(buffer)`
@@ -131,11 +160,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.zi_get_ip(buffer)
+        ; Send a ZiModem AT command over the serial card.
+        cx.zi_get_ip(1)
     }
 }
+
 ```
 
 ## `cx.zi_hex_open(filename)`
@@ -152,11 +185,19 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.zi_hex_open(filename)
+        ; Send a ZiModem AT command over the serial card.
+        cx.zi_hex_open(file_name)
     }
 }
+
+%asm {{
+    file_name   !text "SAVEGAME,S,R", 0
+}}
+
 ```
 
 ## `cx.zi_hex_chunk(buffer)`
@@ -173,11 +214,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.zi_hex_chunk(buffer)
+        ; Send a ZiModem AT command over the serial card.
+        cx.zi_hex_chunk(1)
     }
 }
+
 ```
 
 ## `cx.zi_hex_close()`
@@ -194,11 +239,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; Send a ZiModem AT command over the serial card.
         cx.zi_hex_close()
     }
 }
+
 ```
 
 ## `cx.zi_hexdecode(src, digits, dest)`
@@ -215,9 +264,18 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.zi_hexdecode(src, digits, dest)
+        ; Send a ZiModem AT command over the serial card.
+        cx.zi_hexdecode(hex_text, 10, work_buffer)
     }
 }
+
+%asm {{
+    hex_text    !text "48656C6C6F", 0
+    work_buffer !fill 64, 0
+}}
+
 ```

@@ -26,11 +26,16 @@ This page expands the compact listing from `macroguide.md`. Macro arguments are 
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; Draw through the KERNAL framebuffer cursor.
         cx.fb_init()
+        cx.fb_get_info()
     }
 }
+
 ```
 
 ## `cx.fb_set_palette(data, start, count)`
@@ -47,11 +52,19 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.fb_set_palette(data, start, count)
+        ; Draw through the KERNAL framebuffer cursor.
+        cx.fb_set_palette(palette_data, 4, 4)
     }
 }
+
+%asm {{
+    palette_data !word $000, $00f, $0f0, $f00
+}}
+
 ```
 
 ## `cx.fb_cursor_position(x, y) / cx.fb_cursor_next_line()`
@@ -68,11 +81,16 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.fb_cursor_position(x, y)
+        ; Draw through the KERNAL framebuffer cursor.
+        cx.fb_cursor_position(32, 40)
+        cx.fb_cursor_next_line()
     }
 }
+
 ```
 
 ## `cx.fb_get_pixel(x, y) / cx.fb_set_pixel(x, y, color)`
@@ -89,11 +107,16 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.fb_get_pixel(x, y)
+        ; Draw through the KERNAL framebuffer cursor.
+        cx.fb_get_pixel(32, 40)
+        cx.fb_set_pixel(32, 40, 14)
     }
 }
+
 ```
 
 ## `cx.fb_get_pixels(dest, count) / cx.fb_set_pixels(src, count)`
@@ -110,11 +133,21 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.fb_get_pixels(dest, count)
+        ; Draw through the KERNAL framebuffer cursor.
+        cx.fb_get_pixels(work_buffer, 8)
+        cx.fb_set_pixels(pixel_run, 8)
     }
 }
+
+%asm {{
+    work_buffer !fill 64, 0
+    pixel_run   !byte 1, 2, 3, 4, 4, 3, 2, 1
+}}
+
 ```
 
 ## `cx.fb_set_8_pixels(pattern, color) / cx.fb_set_8_pixels_opaque(mask, pattern, fg, bg)`
@@ -131,11 +164,16 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.fb_set_8_pixels(pattern, color)
+        ; Draw through the KERNAL framebuffer cursor.
+        cx.fb_set_8_pixels(%10101010, 14)
+        cx.fb_set_8_pixels_opaque($01, %10101010, 15, 0)
     }
 }
+
 ```
 
 ## `cx.fb_fill_pixels(count, step, color) / cx.fb_filter_pixels(count, filter)`
@@ -152,11 +190,16 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.fb_fill_pixels(count, step, color)
+        ; Draw through the KERNAL framebuffer cursor.
+        cx.fb_fill_pixels(32, 1, 14)
+        cx.fb_filter_pixels(32, 1)
     }
 }
+
 ```
 
 ## `cx.fb_move_pixels(sx, sy, tx, ty, count)`
@@ -173,9 +216,13 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.fb_move_pixels(sx, sy, tx, ty, count)
+        ; Draw through the KERNAL framebuffer cursor.
+        cx.fb_move_pixels(8, 16, 40, 16, 32)
     }
 }
+
 ```

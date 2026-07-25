@@ -26,11 +26,21 @@ This page expands the compact listing from `macroguide.md`. Macro arguments are 
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        ; see macro listing above
+        ; Detect the UART card, then initialize the first standard base at 9600 bps.
+        cx.ser_detect()
+        cx.ser_init($9f60, SER_BAUD_9600)
+        cx.ser_puts(hello_modem)
     }
 }
+
+%asm {{
+    hello_modem !text "AT", $0d, 0
+}}
+
 ```
 
 ## `cx.ser_detect()`
@@ -47,11 +57,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; Configure the first serial card UART and send a command.
         cx.ser_detect()
     }
 }
+
 ```
 
 ## `cx.ser_init(base, divisor)`
@@ -68,11 +82,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.ser_init(base, divisor)
+        ; Configure the first serial card UART and send a command.
+        cx.ser_init($9f60, 12)
     }
 }
+
 ```
 
 ## `cx.ser_avail()`
@@ -89,11 +107,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; Configure the first serial card UART and send a command.
         cx.ser_avail()
     }
 }
+
 ```
 
 ## `cx.ser_get()`
@@ -110,11 +132,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; Configure the first serial card UART and send a command.
         cx.ser_get()
     }
 }
+
 ```
 
 ## `cx.ser_get_wait()`
@@ -131,11 +157,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; Configure the first serial card UART and send a command.
         cx.ser_get_wait()
     }
 }
+
 ```
 
 ## `cx.ser_put(byte)`
@@ -152,11 +182,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.ser_put(byte)
+        ; Configure the first serial card UART and send a command.
+        cx.ser_put('A')
     }
 }
+
 ```
 
 ## `cx.ser_puts(addr)`
@@ -173,11 +207,19 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.ser_puts(addr)
+        ; Configure the first serial card UART and send a command.
+        cx.ser_puts(work_buffer)
     }
 }
+
+%asm {{
+    work_buffer !fill 64, 0
+}}
+
 ```
 
 ## `cx.ser_write(addr, len)`
@@ -194,11 +236,19 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.ser_write(addr, len)
+        ; Configure the first serial card UART and send a command.
+        cx.ser_write(work_buffer, 16)
     }
 }
+
+%asm {{
+    work_buffer !fill 64, 0
+}}
+
 ```
 
 ## `cx.ser_read_until(match, buffer, max)`
@@ -215,11 +265,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.ser_read_until(match, buffer, max)
+        ; Configure the first serial card UART and send a command.
+        cx.ser_read_until(1, 1, 32)
     }
 }
+
 ```
 
 ## `cx.ser_discard_until(match)`
@@ -236,9 +290,13 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.ser_discard_until(match)
+        ; Configure the first serial card UART and send a command.
+        cx.ser_discard_until(1)
     }
 }
+
 ```

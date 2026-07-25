@@ -2,9 +2,9 @@
 # build.ps1 -- compile a Prog8 program against the X16_Library wrapper,
 # linking only the library modules the program actually calls.
 #
-#   .\build.ps1                       # build examples\hello.p8
-#   .\build.ps1 examples\hello.p8     # a specific program
-#   .\build.ps1 examples\hello.p8 -Run    # ...and run it in the emulator
+#   .\build.ps1                       # build examples\hello\hello.p8
+#   .\build.ps1 examples\hello\hello.p8     # a specific program
+#   .\build.ps1 examples\hello\hello.p8 -Run    # ...and run it in the emulator
 #
 # How "pay-per-use" works: the wrapper embeds the whole X16_Library 64tass
 # source (x16lib\x16lib_src.asm), gated module-by-module. This script scans
@@ -14,7 +14,7 @@
 # by the library). Everything else is left out of the PRG.
 # =====================================================================
 param(
-    [string]$Program = "examples\hello.p8",
+    [string]$Program = "examples\hello\hello.p8",
     [string]$BankFile = "",    # a file describing multiple banks; lines: bank <N>, "mod,mod"
     [string]$Bank = "",        # OR a single bank inline: comma list of modules, e.g. "shapes,bitmap2h"
     [int]$BankNum = 1,         # bank number for the inline -Bank form

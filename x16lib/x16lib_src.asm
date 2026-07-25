@@ -1224,7 +1224,7 @@ xuse_verafx_fill = xuse_bitmap2h || X16_USE_VERAFX_FILL != 0 || xuse_bitmap2l ||
 xuse_irq_any = xuse_irq_core || xuse_irq_remove || xuse_irq_vsync || xuse_irq_sprcol
 xuse_verafx_any = xuse_verafx_mult || xuse_verafx_fill || xuse_verafx_copy || xuse_verafx_transp || xuse_verafx_affine || xuse_verafx_line || xuse_verafx_tri
 xuse_vera_core = xuse_vera || X16_USE_VERA_CORE != 0
-xuse_vera_copy = xuse_vera || X16_USE_VERA_COPY != 0
+xuse_vera_copy = xuse_vera || X16_USE_VERA_COPY != 0 || xuse_screen_extra
 xuse_vera_addr = xuse_vera_core || X16_USE_VERA_ADDR != 0
 xuse_vera_fill = xuse_vera_core || X16_USE_VERA_FILL != 0
 xuse_vera_fxprobe = xuse_vera_core || X16_USE_VERA_FXPROBE != 0
@@ -1748,6 +1748,13 @@ screen_get_mode
     #vera_addrsel 0
     sec
     jmp SCREEN_MODE
+
+; ---------------------------------------------------------------------
+; screen_get_size -- the live text grid, after any screen_set_mode
+;   out: X = columns, Y = rows
+; ---------------------------------------------------------------------
+screen_get_size
+    jmp SCREEN
 .endif
 
 ; ---------------------------------------------------------------------
@@ -1843,6 +1850,292 @@ screen_charset
     #vera_addrsel 0
     pla
     jmp SCREEN_SET_CHARSET
+
+; ---------------------------------------------------------------------
+; Direct text-map access.
+;
+; CHROUT costs several hundred cycles a character once the editor's
+; scroll checks, colour handling and cursor bookkeeping are paid for.
+; A program that repaints a whole text screen -- a spreadsheet, a file
+; browser, any full-screen TUI -- cannot afford that, so these three
+; write VERA's tile map itself: screen_addr points port 0 at a cell with
+; auto-increment 1, and each following pair of bytes is one character
+; and its colour. The address walks the row on its own, so a whole line
+; costs one set-up and two stores per column.
+;
+; The KERNAL is not involved and neither is its cursor: these do not
+; scroll, do not wrap, and do not move the CHROUT cursor. Do not print
+; past the end of a row.
+;
+; Text is PETSCII on the way in -- the same bytes you would give CHROUT
+; -- and is folded to screen codes here, so the caller never has to know
+; the difference.
+;
+; The colour byte is foreground | background << 4, the same layout
+; screen_color builds.
+; ---------------------------------------------------------------------
+
+; ---------------------------------------------------------------------
+; screen_addr -- point VERA port 0 at a character cell
+;   in:  X = row, Y = column
+;
+; Reads L1_MAPBASE and L1_CONFIG, so it follows whatever screen_set_mode
+; left behind rather than assuming the 80x60 default. Leaves ADDRSEL = 0
+; and the increment set to 1.
+; ---------------------------------------------------------------------
+screen_addr
+    jsr screen_addr_calc
+    #vera_addrsel 0
+    jmp screen_addr_store
+
+; ---------------------------------------------------------------------
+; screen_addr1 -- the same, for VERA port 1
+;   in:  X = row, Y = column
+;
+; Port 1 is what you point at the destination when moving text around
+; with vera_copy; screen_scroll below is the usual reason to want it.
+; ---------------------------------------------------------------------
+screen_addr1
+    jsr screen_addr_calc
+    #vera_addrsel 1
+screen_addr_store
+    lda X16_T0
+    sta VERA_ADDR_L
+    lda X16_T1
+    sta VERA_ADDR_M
+    lda X16_T2
+    and #$01                    ; bit 16 of the address
+    ora #$10                    ; increment 1
+    sta VERA_ADDR_H
+    rts
+
+; address of (X = row, Y = column) into X16_T0/T1/T2, port untouched
+screen_addr_calc
+    sty X16_T5                  ; column
+    stx X16_T6                  ; row
+
+    lda VERA_L1_MAPBASE         ; map base = MAPBASE << 9
+    asl                         ; carry = bit 16
+    sta X16_T1                  ; mid
+    lda #0
+    rol
+    sta X16_T2                  ; high
+    stz X16_T0                  ; low
+
+    lda VERA_L1_CONFIG          ; MAP_WIDTH: 0=32 1=64 2=128 3=256 tiles
+    lsr
+    lsr
+    lsr
+    lsr
+    and #3
+    clc
+    adc #6                      ; bytes per row = 2 << (5 + width)
+    tay
+
+    lda X16_T6                  ; row << Y
+    sta X16_T3
+    stz X16_T4
+_shift
+    asl X16_T3
+    rol X16_T4
+    dey
+    bne _shift
+
+    clc                         ; base += row * stride
+    lda X16_T0
+    adc X16_T3
+    sta X16_T0
+    lda X16_T1
+    adc X16_T4
+    sta X16_T1
+    bcc _nocarry1
+    inc X16_T2
+_nocarry1
+    lda X16_T5                  ; base += column * 2
+    asl
+    tax
+    lda #0
+    rol
+    tay
+    txa
+    clc
+    adc X16_T0
+    sta X16_T0
+    tya
+    adc X16_T1
+    sta X16_T1
+    bcc _nocarry2
+    inc X16_T2
+_nocarry2
+    rts
+
+; ---------------------------------------------------------------------
+; screen_scode -- PETSCII to screen code
+;   in:  A = PETSCII, out: A = screen code
+;
+; The standard CBM folding. Exposed because a caller building its own
+; tile data occasionally wants it.
+; ---------------------------------------------------------------------
+screen_scode
+    cmp #$20
+    bcc _plus80                 ; $00-$1F
+    cmp #$40
+    bcc _same                   ; $20-$3F
+    cmp #$60
+    bcc _minus40                ; $40-$5F
+    cmp #$80
+    bcc _minus20                ; $60-$7F
+    cmp #$A0
+    bcc _plus40                 ; $80-$9F
+    cmp #$C0
+    bcc _minus40                ; $A0-$BF
+_minus80                        ; $C0-$FF
+    sec
+    sbc #$80
+_same
+    rts
+_plus80
+    clc
+    adc #$80
+    rts
+_minus40
+    sec
+    sbc #$40
+    rts
+_minus20
+    sec
+    sbc #$20
+    rts
+_plus40
+    clc
+    adc #$40
+    rts
+
+; ---------------------------------------------------------------------
+; screen_blit -- write a run of characters, all one colour
+;   in:  X16_P0/P1 = source, A = count (1-255), X = colour byte
+;
+; Port 0 must already point at the first cell (screen_addr); it is left
+; pointing just past the last one, so runs can be chained.
+; ---------------------------------------------------------------------
+screen_blit
+    sta X16_T7                  ; count
+    stx X16_T3                  ; colour
+    ldy #0
+_loop
+    lda (X16_P0),y
+    jsr screen_scode
+    sta VERA_DATA0
+    lda X16_T3
+    sta VERA_DATA0
+    iny
+    cpy X16_T7
+    bne _loop
+    rts
+
+; ---------------------------------------------------------------------
+; screen_blitfill -- write a run of one repeated character
+;   in:  A = count (1-255), X = colour byte, Y = character (PETSCII)
+;
+; Same contract as screen_blit; the usual way to blank part of a line.
+; ---------------------------------------------------------------------
+screen_blitfill
+    sta X16_T7                  ; count
+    stx X16_T3                  ; colour
+    tya
+    jsr screen_scode
+    sta X16_T4                  ; screen code, converted once
+    ldy #0
+_loop
+    lda X16_T4
+    sta VERA_DATA0
+    lda X16_T3
+    sta VERA_DATA0
+    iny
+    cpy X16_T7
+    bne _loop
+    rts
+
+; ---------------------------------------------------------------------
+; screen_scroll -- slide a rectangle of the text screen up or down
+;   in:  X16_P0 = top row of the region
+;        X16_P1 = left column
+;        X16_P2 = height, in rows
+;        X16_P3 = width, in columns
+;        X16_P4 = distance to move, in rows
+;        A      = 0 to move the picture up (toward row 0), 1 for down
+;
+; The point of this is not to save typing: a full-screen program that
+; re-renders its whole grid to scroll one line pays for every cell it
+; draws, and for a spreadsheet or a directory listing most of that cost
+; is formatting the contents, not the drawing. Moving the picture inside
+; VRAM and rendering only the row that appears costs one row instead of
+; a screenful, whatever the contents happen to be.
+;
+; The rows uncovered at the trailing edge keep their old contents -- the
+; caller draws what belongs there. Nothing happens when the distance is
+; zero, or when it is large enough that nothing would survive, so the
+; caller can simply repaint in that case.
+;
+; Vertical only. Scrolling sideways would move a row onto itself, and
+; vera_copy walks forward, so the two would overlap.
+; ---------------------------------------------------------------------
+screen_scroll
+    sta X16_P7                  ; direction
+    lda X16_P4
+    beq _done                   ; nothing to do
+    cmp X16_P2
+    bcs _done                   ; nothing would survive: let the caller repaint
+
+    sec
+    lda X16_P2
+    sbc X16_P4
+    sta X16_P5                  ; rows to copy
+    stz X16_P6                  ; index
+_loop
+    lda X16_P7
+    bne _down
+    lda X16_P0                  ; up: dst = top + i, src = dst + distance
+    clc
+    adc X16_P6
+    sta X16_T7
+    clc
+    adc X16_P4
+    tax
+    bra _move
+_down
+    lda X16_P0                  ; down: dst = bottom - i, src = dst - distance
+    clc
+    adc X16_P2
+    sec
+    sbc #1
+    sec
+    sbc X16_P6
+    sta X16_T7
+    sec
+    sbc X16_P4
+    tax
+_move
+    phx                         ; port 1 = destination
+    ldx X16_T7
+    ldy X16_P1
+    jsr screen_addr1
+    plx                         ; port 0 = source
+    ldy X16_P1
+    jsr screen_addr
+    lda X16_P3                  ; width in cells -> bytes
+    asl
+    tax
+    lda #0
+    rol
+    tay
+    jsr vera_copy
+    inc X16_P6
+    lda X16_P6
+    cmp X16_P5
+    bne _loop
+_done
+    rts
 
 ; ---------------------------------------------------------------------
 ; screen_puts -- print a NUL-terminated string
@@ -3955,43 +4248,35 @@ _bad
     rts
 
 bitmap8h_addr_calc
-    lda X16_P2                  ; a = y << 7
+    lda X16_P2                  ; y*640 = y*512 + y*128, in ~30 cycles:
+    lsr                         ; lo = (y & 1) << 7
+    tax                         ; md/hi = (y << 1) + (y >> 1)
+    lda #0
+    ror
     sta g8h_a0
-    lda X16_P3
+    lda X16_P2
+    asl
     sta g8h_a1
-    stz g8h_a2
-    ldx #7
-_s7
-    asl g8h_a0
-    rol g8h_a1
-    rol g8h_a2
-    dex
-    bne _s7
-
-    lda g8h_a0                  ; T = y << 9
-    sta X16_T0
-    lda g8h_a1
-    sta X16_T1
-    lda g8h_a2
-    sta X16_T2
-    asl X16_T0
-    rol X16_T1
-    rol X16_T2
-    asl X16_T0
-    rol X16_T1
-    rol X16_T2
-
-    clc                         ; y*640 = (y<<7) + (y<<9)
-    lda g8h_a0
-    adc X16_T0
-    sta g8h_a0
-    lda g8h_a1
-    adc X16_T1
-    sta g8h_a1
-    lda g8h_a2
-    adc X16_T2
+    lda #0
+    rol
     sta g8h_a2
-
+    txa
+    clc
+    adc g8h_a1
+    sta g8h_a1
+    bcc +
+    inc g8h_a2
++
+    lda X16_P3                  ; y >= 256: + 256*640 = $28000
+    beq _addx
+    clc
+    lda g8h_a1
+    adc #$80
+    sta g8h_a1
+    lda g8h_a2
+    adc #$02
+    sta g8h_a2
+_addx
     clc                         ; + x
     lda g8h_a0
     adc X16_P0
@@ -3999,10 +4284,9 @@ _s7
     lda g8h_a1
     adc X16_P1
     sta g8h_a1
-    lda g8h_a2
-    adc #0
-    sta g8h_a2
-    rts
+    bcc +
+    inc g8h_a2
++   rts
 
 bitmap8h_fill_count
     ldy g8h_n+1                 ; high byte first, so beq tests the LOW byte:
@@ -7732,19 +8016,31 @@ _off
 ; gfx4h_hline / gfx4h_vline -- spans, no clipping
 ;   in: A = colour, X16_P0/P1 = x, X16_P2/P3 = y, X16_P4/P5 = length
 ; ---------------------------------------------------------------------
+; hline: RMW the odd leading/trailing nibbles, STREAM the interior as
+; whole two-pixel bytes through DATA at stride +1 -- one sta per two
+; pixels instead of a full pset (address calc + RMW) per pixel.
 gfx4h_hline
     and #$0F
     sta g4h_c
+    tax
+    lda bitmap4h_colbyte,x
+    sta g4h_t2                  ; the both-nibbles fill byte
     lda X16_P4
     sta g4h_n
     lda X16_P5
     sta g4h_n+1
-_loop
-    lda g4h_n
-    ora g4h_n+1
-    beq _done
-    lda g4h_c
-    jsr gfx4h_pset
+    ora g4h_n
+    bne +
+    rts
++   lda X16_P0
+    and #1
+    beq _aligned
+    lda #VERA2_INC_0            ; leading odd pixel: RMW the low nibble
+    jsr gfx4h_setptr
+    lda VERA2_DATA
+    and #$F0
+    ora g4h_c
+    sta VERA2_DATA
     inc X16_P0
     bne +
     inc X16_P1
@@ -7752,10 +8048,51 @@ _loop
     bne +
     dec g4h_n+1
 +   dec g4h_n
-    bra _loop
+    lda g4h_n
+    ora g4h_n+1
+    bne _aligned
+    rts
+_aligned
+    lsr g4h_n+1                 ; n -> full bytes, carry = trailing pixel
+    ror g4h_n
+    bcc +
+    lda #1
+    sta g4h_phase               ; remember the trailing odd-width pixel
+    bra ++
++   stz g4h_phase
+++  lda g4h_n
+    ora g4h_n+1
+    beq _nofull
+    lda #VERA2_INC_1
+    jsr gfx4h_setptr
+    lda g4h_t2
+    jsr bitmap4h_fill_count
+    lda g4h_phase
+    beq _done
+    lda VERA2_ADDR_H            ; the +1 stride left the pointer ON the
+    and #$0F                    ; trailing byte: just switch it to hold
+    ora #(VERA2_INC_0 << 4)
+    sta VERA2_ADDR_H
+    bra _rmwhi
+_nofull
+    lda g4h_phase
+    beq _done
+    lda #VERA2_INC_0
+    jsr gfx4h_setptr
+_rmwhi
+    lda VERA2_DATA              ; trailing even pixel: RMW the high nibble
+    and #$0F
+    sta g4h_t
+    lda g4h_t2
+    and #$F0
+    ora g4h_t
+    sta VERA2_DATA
 _done
     rts
 
+; vline: one address calc, then per row an RMW at hold stride and a
+; 24-bit +320 on the cached address (three pointer stores) -- the same
+; nibble mask the whole way down, no per-pixel pset.
 gfx4h_vline
     and #$0F
     sta g4h_c
@@ -7763,20 +8100,55 @@ gfx4h_vline
     sta g4h_n
     lda X16_P5
     sta g4h_n+1
-_loop
-    lda g4h_n
-    ora g4h_n+1
+    ora g4h_n
     beq _done
+    jsr bitmap4h_addr_calc              ; g4h_a0..a2 = the column's first byte
+    lda X16_P0
+    and #1
+    bne _odd
+    lda #$0F                    ; even x: keep low nibble, or in col<<4
+    sta g4h_t2
     lda g4h_c
-    jsr gfx4h_pset
-    inc X16_P2
-    bne +
-    inc X16_P3
+    asl
+    asl
+    asl
+    asl
+    sta g4h_t
+    bra _row
+_odd
+    lda #$F0                    ; odd x: keep high nibble, or in col
+    sta g4h_t2
+    lda g4h_c
+    sta g4h_t
+_row
+    lda g4h_a0
+    sta VERA2_ADDR_L
+    lda g4h_a1
+    sta VERA2_ADDR_M
+    lda g4h_a2
+    and #$0F
+    ora #(VERA2_INC_0 << 4)     ; hold: read and write the same byte
+    sta VERA2_ADDR_H
+    lda VERA2_DATA
+    and g4h_t2
+    ora g4h_t
+    sta VERA2_DATA
+    clc                         ; address += 320, one row down
+    lda g4h_a0
+    adc #$40
+    sta g4h_a0
+    lda g4h_a1
+    adc #$01
+    sta g4h_a1
+    bcc +
+    inc g4h_a2
 +   lda g4h_n
     bne +
     dec g4h_n+1
 +   dec g4h_n
-    bra _loop
+    lda g4h_n
+    ora g4h_n+1
+    bne _row
 _done
     rts
 
@@ -7788,19 +8160,21 @@ _done
 gfx4h_rect
     and #$0F
     sta g4h_rc
+    lda X16_P0
+    sta g4h_rx
+    lda X16_P1
+    sta g4h_rx+1
 _row
     lda X16_P6
     ora X16_P7
     beq _done
     lda g4h_rc
     jsr gfx4h_hline
-    sec
-    lda X16_P0
-    sbc X16_P4
+    lda g4h_rx                  ; hline may nudge x for alignment: restore
     sta X16_P0
-    bcs +
-    dec X16_P1
-+   inc X16_P2
+    lda g4h_rx+1
+    sta X16_P1
+    inc X16_P2
     bne +
     inc X16_P3
 +   lda X16_P6
@@ -8325,59 +8699,58 @@ _bad
     rts
 
 bitmap4h_addr_calc
-    lda X16_P2                  ; a = y << 6
+    lda X16_P2                  ; y*320 = y*256 + y*64, in ~25 cycles:
+    ror                         ; lo = (y & 3) << 6
+    ror                         ; md = y + (y >> 2)
+    ror                         ; hi = carry out of the md add
+    and #$C0
     sta g4h_a0
-    lda X16_P3
+    lda X16_P2
+    lsr
+    lsr
+    clc
+    adc X16_P2
     sta g4h_a1
-    stz g4h_a2
-    ldx #6
-_s6
-    asl g4h_a0
-    rol g4h_a1
-    rol g4h_a2
-    dex
-    bne _s6
-
-    lda g4h_a0                  ; T = y << 8
-    sta X16_T0
-    lda g4h_a1
-    sta X16_T1
-    lda g4h_a2
-    sta X16_T2
-    asl X16_T0
-    rol X16_T1
-    rol X16_T2
-    asl X16_T0
-    rol X16_T1
-    rol X16_T2
-
-    clc                         ; y*320 = (y<<6) + (y<<8)
-    lda g4h_a0
-    adc X16_T0
-    sta g4h_a0
-    lda g4h_a1
-    adc X16_T1
-    sta g4h_a1
-    lda g4h_a2
-    adc X16_T2
+    lda #0
+    rol
     sta g4h_a2
-
+    lda X16_P3                  ; y >= 256: + 256*320 = $14000
+    beq _addx
+    clc
+    lda g4h_a1
+    adc #$40
+    sta g4h_a1
+    bcc +
+    inc g4h_a2
++   inc g4h_a2
+_addx
     lda X16_P1                  ; + x >> 1
+    lsr
     sta X16_T1
     lda X16_P0
-    lsr X16_T1
     ror
-    sta X16_T0
     clc
-    lda g4h_a0
-    adc X16_T0
+    adc g4h_a0
     sta g4h_a0
     lda g4h_a1
     adc X16_T1
     sta g4h_a1
-    lda g4h_a2
-    adc #0
-    sta g4h_a2
+    bcc +
+    inc g4h_a2
++   rts
+
+bitmap4h_fill_count
+    ldy g4h_n+1                 ; high byte first, so beq tests the LOW
+    ldx g4h_n                   ; byte (same shape as bitmap8h)
+    beq _full
+    iny
+_full
+_loop
+    sta VERA2_DATA
+    dex
+    bne _loop
+    dey
+    bne _loop
     rts
 
 bitmap4h_fill_pages
@@ -8417,6 +8790,7 @@ g4h_src .word 0
 g4h_rowbytes .byte 0
 g4h_phase .byte 0
 
+g4h_rx  .word 0
 g4h_fx  .word 0
 g4h_fy  .word 0
 g4h_rw  .word 0
@@ -8448,6 +8822,7 @@ g4h_lsy  .word 0
 bitmap4h_colbyte
     .byte $00, $11, $22, $33, $44, $55, $66, $77
          .byte $88, $99, $AA, $BB, $CC, $DD, $EE, $FF
+
 
 ; (end zone)
 .endif
@@ -18281,6 +18656,7 @@ fio_set_lfs
 fio_set_name
     jmp SETNAM                  ; A = length, X/Y = name pointer
 
+; fio_open -- out: carry set on error, A = the KERNAL error code
 fio_open
     jmp OPEN
 
@@ -18296,15 +18672,18 @@ fio_chkout
 fio_clrchn
     jmp CLRCHN
 
+; fio_chrin -- out: A = the byte read from the current input channel
 fio_chrin
     jmp CHRIN
 
 fio_chrout
     jmp CHROUT
 
+; fio_readst -- out: A = the KERNAL status byte (bit 6 = end of file)
 fio_readst
     jmp READST
 
+; fio_getin -- out: A = one byte, 0 if nothing is waiting
 fio_getin
     jmp GETIN
 
@@ -23681,6 +24060,8 @@ f_atan
 ;
 ; Positive numbers get a leading space, exactly as BASIC's PRINT shows
 ; them; f_to_str_trim skips it.
+;
+; f_to_str_trim -- out: A = low, X = high, the string without that space
 ; ---------------------------------------------------------------------
 f_to_str
     #jsrfar fp_fout, BANK_BASIC

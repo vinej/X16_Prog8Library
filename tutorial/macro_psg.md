@@ -26,11 +26,15 @@ This page expands the compact listing from `macroguide.md`. Macro arguments are 
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; Prepare voice 0 for a short confirmation beep.
         cx.psg_init()
     }
 }
+
 ```
 
 ## `cx.psg_set_freq(voice, freq)`
@@ -47,11 +51,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.psg_set_freq(voice, freq)
+        ; Prepare voice 0 for a short confirmation beep.
+        cx.psg_set_freq(0, $1f40)
     }
 }
+
 ```
 
 ## `cx.psg_set_vol(voice, vol, pan)`
@@ -68,11 +76,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.psg_set_vol(voice, vol, pan)
+        ; Prepare voice 0 for a short confirmation beep.
+        cx.psg_set_vol(0, 48, $c0)
     }
 }
+
 ```
 
 ## `cx.psg_set_wave(voice, wave, width)`
@@ -89,11 +101,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.psg_set_wave(voice, wave, width)
+        ; Prepare voice 0 for a short confirmation beep.
+        cx.psg_set_wave(0, $40, 32)
     }
 }
+
 ```
 
 ## `cx.psg_note_off(voice)`
@@ -110,11 +126,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.psg_note_off(voice)
+        ; Prepare voice 0 for a short confirmation beep.
+        cx.psg_note_off(0)
     }
 }
+
 ```
 
 ## `cx.psg_env_start / _release / _stop voice`
@@ -131,11 +151,17 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.psg_env_start()
+        ; Prepare voice 0 for a short confirmation beep.
+        cx.psg_env_start(0)
+        cx.psg_env_release(0)
+        cx.psg_env_stop(0)
     }
 }
+
 ```
 
 ## `cx.psg_env_tick()`
@@ -152,9 +178,13 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; Prepare voice 0 for a short confirmation beep.
         cx.psg_env_tick()
     }
 }
+
 ```

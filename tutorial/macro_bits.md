@@ -26,11 +26,15 @@ This page expands the compact listing from `macroguide.md`. Macro arguments are 
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.catnib(hi, lo)
+        ; combine two nibbles
+        cx.catnib($0f, $00)
     }
 }
+
 ```
 
 ## `cx.hinib(byte) / cx.lonib(byte)`
@@ -47,11 +51,16 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.hinib(byte)
+        ; extract high/low nibble
+        cx.hinib('A')
+        cx.lonib('A')
     }
 }
+
 ```
 
 ## `cx.bit_set(addr, mask) / cx.bit_clr(addr, mask) / cx.bit_test(addr, mask)`
@@ -68,9 +77,38 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.bit_set(addr, mask)
+        ; bit operations
+        cx.bit_set(work_buffer, $01)
+        cx.bit_clr(work_buffer, $01)
+        cx.bit_test(work_buffer, $01)
     }
 }
+
+%asm {{
+    work_buffer !fill 64, 0
+}}
+
 ```
+
+<!-- generated: friendly macros for previously unwrapped routines -->
+
+## More of bits
+
+These routines were always in the library; what they lacked was a
+friendly macro, so this is how to call them without writing the
+register set-up by hand. Most of them work on their module's own
+accumulator rather than on arguments.
+
+## `cx.bit_put(addr, mask, set)`
+
+| Field | Details |
+|---|---|
+| Macro | `cx.bit_put(addr, mask, set)` |
+| Purpose | -- in: X16_PTR0 = address, A = mask, |
+| Input parameters | `addr`, `mask`, `set` |
+| Output parameters | Nothing the macro can hand back; see the routine's header. |
+| More info | Available when `X16_USE_BITS` is enabled. |

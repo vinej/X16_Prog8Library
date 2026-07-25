@@ -26,11 +26,21 @@ This page expands the compact listing from `macroguide.md`. Macro arguments are 
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.zsm_init(header)
+        ; `ZSM` gate
+        cx.zsm_init(zsm_header)
+        cx.zsm_init_stream(zsm_stream, 1)
     }
 }
+
+%asm {{
+    zsm_header  !word zsm_stream
+    zsm_stream  !byte 0
+}}
+
 ```
 
 ## `cx.zsm_play() / cx.zsm_stop() / cx.zsm_rewind()`
@@ -47,11 +57,17 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; `ZSM` gate
         cx.zsm_play()
+        cx.zsm_stop()
+        cx.zsm_rewind()
     }
 }
+
 ```
 
 ## `cx.zsm_get_tickrate() / cx.zsm_status() / cx.zsm_tick()`
@@ -68,11 +84,17 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; `ZSM` gate
         cx.zsm_get_tickrate()
+        cx.zsm_status()
+        cx.zsm_tick()
     }
 }
+
 ```
 
 ## `cx.zsm_pcm_present() / cx.zsm_pcm_trigger(instrument)`
@@ -89,9 +111,14 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; `ZSM_PCM` gate
         cx.zsm_pcm_present()
+        cx.zsm_pcm_trigger(0)
     }
 }
+
 ```

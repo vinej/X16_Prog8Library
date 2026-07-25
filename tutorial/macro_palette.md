@@ -26,11 +26,15 @@ This page expands the compact listing from `macroguide.md`. Macro arguments are 
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.pal_set(index, rgb)
+        ; Install a small four-color palette.
+        cx.pal_set(1, $0f00)
     }
 }
+
 ```
 
 ## `cx.pal_load(src, first, count)`
@@ -47,9 +51,17 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.pal_load(src, first, count)
+        ; Install a small four-color palette.
+        cx.pal_load(palette_data, 0, 4)
     }
 }
+
+%asm {{
+    palette_data !word $000, $00f, $0f0, $f00
+}}
+
 ```

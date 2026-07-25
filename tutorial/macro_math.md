@@ -26,11 +26,15 @@ This page expands the compact listing from `macroguide.md`. Macro arguments are 
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.rnd_seed(seed)
+        ; Calculate small game-control values from constants.
+        cx.rnd_seed($ace1)
     }
 }
+
 ```
 
 ## `cx.sin8(angle) / cx.cos8(angle)`
@@ -47,11 +51,16 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.sin8(angle)
+        ; Calculate small game-control values from constants.
+        cx.sin8(32)
+        cx.cos8(32)
     }
 }
+
 ```
 
 ## `cx.sin8u(angle) / cx.cos8u(angle)`
@@ -68,11 +77,16 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.sin8u(angle)
+        ; Calculate small game-control values from constants.
+        cx.sin8u(32)
+        cx.cos8u(32)
     }
 }
+
 ```
 
 ## `cx.atan2(dx, dy)`
@@ -89,11 +103,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.atan2(dx, dy)
+        ; Calculate small game-control values from constants.
+        cx.atan2(40, -16)
     }
 }
+
 ```
 
 ## `cx.lerp8(a, b, t)`
@@ -110,9 +128,32 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.lerp8(a, b, t)
+        ; Calculate small game-control values from constants.
+        cx.lerp8($20, $a0, 96)
     }
 }
+
 ```
+
+<!-- generated: friendly macros for previously unwrapped routines -->
+
+## More of math
+
+These routines were always in the library; what they lacked was a
+friendly macro, so this is how to call them without writing the
+register set-up by hand. Most of them work on their module's own
+accumulator rather than on arguments.
+
+## `cx.rnd16()`
+
+| Field | Details |
+|---|---|
+| Macro | `cx.rnd16()` |
+| Purpose | A = low, X = high |
+| Input parameters | None — operates on the module's own state. |
+| Output parameters | Returns `A` = low, `X` = high. |
+| More info | Available when `X16_USE_MATH` is enabled. |

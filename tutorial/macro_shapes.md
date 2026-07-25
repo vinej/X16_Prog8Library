@@ -26,11 +26,17 @@ This page expands the compact listing from `macroguide.md`. Macro arguments are 
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        ; see macro listing above
+        ; Use the default SHP_* binding: shapes draw to the 640x480 2bpp bitmap.
+        cx.gfx2h_init()
+        cx.gfx2h_clear(0)
+        cx.shape_disc(160, 120, 24, 3)
     }
 }
+
 ```
 
 ## `cx.shape_circle(cx, cy, r, col) / cx.shape_disc(...)`
@@ -47,11 +53,16 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.shape_circle(cx, cy, r, col)
+        ; Draw a simple mark on the active bitmap target.
+        cx.shape_circle(160, 120, 24, 14)
+        cx.shape_disc(160, 120, 24, 14)
     }
 }
+
 ```
 
 ## `cx.shape_ellipse(cx, cy, rx, ry, col) / cx.shape_fellipse(...)`
@@ -68,11 +79,16 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.shape_ellipse(cx, cy, rx, ry, col)
+        ; Draw a simple mark on the active bitmap target.
+        cx.shape_ellipse(160, 120, 48, 20, 14)
+        cx.shape_fellipse(160, 120, 48, 20, 14)
     }
 }
+
 ```
 
 ## `cx.shape_flood(x, y, col)`
@@ -89,11 +105,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.shape_flood(x, y, col)
+        ; Draw a simple mark on the active bitmap target.
+        cx.shape_flood(32, 40, 14)
     }
 }
+
 ```
 
 ## `cx.shape_polygon(cx, cy, r, sides, rot, col) / cx.shape_fpolygon(...)`
@@ -110,11 +130,16 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.shape_polygon(cx, cy, r, sides, rot, col)
+        ; `SHAPES_POLY` gate
+        cx.shape_polygon(160, 120, 24, 6, 16, 14)
+        cx.shape_fpolygon(160, 120, 24, 6, 16, 14)
     }
 }
+
 ```
 
 ## `cx.shape_rrect(x, y, w, h, r, col) / cx.shape_frrect(...)`
@@ -131,11 +156,16 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.shape_rrect(x, y, w, h, r, col)
+        ; `SHAPES_RRECT` gate
+        cx.shape_rrect(32, 40, 96, 64, 24, 14)
+        cx.shape_frrect(32, 40, 96, 64, 24, 14)
     }
 }
+
 ```
 
 ## `cx.shape_arc(cx, cy, r, a0, a1, col)`
@@ -152,11 +182,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.shape_arc(cx, cy, r, a0, a1, col)
+        ; `SHAPES_ARC` gate
+        cx.shape_arc(160, 120, 24, 0, 64, 14)
     }
 }
+
 ```
 
 ## `cx.shape_pie(cx, cy, r, a0, a1, col)`
@@ -173,11 +207,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.shape_pie(cx, cy, r, a0, a1, col)
+        ; `SHAPES_PIE` gate
+        cx.shape_pie(160, 120, 24, 0, 64, 14)
     }
 }
+
 ```
 
 ## `cx.shape_bezier(x0, y0, x1, y1, x2, y2, x3, y3, col)`
@@ -194,9 +232,13 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.shape_bezier(x0, y0, x1, y1, x2, y2, x3, y3, col)
+        ; `SHAPES_BEZIER` gate
+        cx.shape_bezier(24, 32, 96, 96, 160, 48, 224, 112, 14)
     }
 }
+
 ```

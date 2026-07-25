@@ -7,8 +7,10 @@ A [Prog8](https://prog8.readthedocs.io/) wrapper for the
 [X16_Library](../x16_library) — call the library's hand-written 6502 routines
 from Prog8 with typed subroutines, on the Commander X16.
 
-**Every** library routine is available, and your PRG contains only the modules
-you actually call.
+Generated from **X16_Library v0.14.0**.
+
+Every library module is available, and your PRG contains only the ones you
+actually call.
 
 ```prog8
 %import x16lib          ; typed wrappers + the (gated) embedded library source
@@ -56,7 +58,7 @@ exactly why gating matters.
 | `x16lib/routine_gates.json` | routine → `X16_USE_*` gate map, consumed by `build.ps1` |
 | `x16lib/x16lib_gates.inc` | generated per build: the gates enabled for the current program |
 | `tools/gen_prog8_src.py` | the generator that produces all of the above |
-| `examples/` | `hello.p8`, `shapes.p8` |
+| `examples/` | one folder per example — see below |
 | `build.ps1` | scan gates, compile, optionally run |
 | `tutorial/` | the X16_Library tutorial, Prog8 edition (generated — see below) |
 
@@ -73,9 +75,9 @@ Needs, all repo-local:
 * `emulator/x16emu.exe` + `rom.bin` — the Commander X16 emulator (r49).
 
 ```powershell
-.\build.ps1                       # build examples\hello.p8 -> build\hello.prg
-.\build.ps1 examples\shapes.p8    # a specific program
-.\build.ps1 examples\hello.p8 -Run    # ...and launch it in the emulator
+.\build.ps1                       # build examples\hello\hello.p8 -> build\hello.prg
+.\build.ps1 examples\shapes\shapes.p8    # a specific program
+.\build.ps1 examples\hello\hello.p8 -Run    # ...and launch it in the emulator
 ```
 
 Each build prints the modules it enabled, e.g.
@@ -90,6 +92,40 @@ for programs that don't use them.
 > or write the `X16_USE_* = 1` lines you want into `x16lib/x16lib_gates.inc`
 > yourself before running `prog8c`.
 
+## Examples
+
+One folder per example, each self-contained — the `.p8` sources it needs, its
+bank layout, any data file it loads, and **its own `build.ps1`** carrying that
+example's arguments:
+
+| Folder | Build | What it shows |
+|---|---|---|
+| `examples/hello/` | `.\build.ps1 [-Run]` | the smallest thing that links: `screen_puts` + `u16_to_dec` |
+| `examples/shapes/` | `.\build.ps1 [-Bank] [-Run]` | the shape + bitmap engines; `-Bank` relocates them into RAM bank 22 |
+| `examples/sortdemo/` | `.\build.ps1 [-Run]` | `sort_u16` and `str_sort` |
+| `examples/imgview/` | `.\build.ps1 [-Image f.jpg] [-Stretch] [-Run]` | a 640×480 8bpp image streamed into VERA_2 SDRAM; `-Image` converts it first |
+| `examples/twobank/` | `.\build.ps1 [-Flat] [-Run]` | library modules split across two 8K RAM banks |
+| `examples/kalk/` | `.\build.ps1 [-Test] [-Run]` | a whole application: the `kalk` spreadsheet — has its own [README](examples/kalk/README.md) |
+
+Each of those is a thin wrapper around the root `build.ps1` (which does the
+gate scan and drives `prog8c`), so it works from any directory:
+
+```powershell
+.\examples\kalk\build.ps1 -Run          # from the repo root
+cd examples\kalk;  .\build.ps1 -Run     # or from the example's folder
+```
+
+The root script still takes any program directly, which is what you want for
+your own code:
+
+```powershell
+.\build.ps1 examples\shapes\shapes.p8 -Bank "shapes,bitmap2h" -BankNum 22
+```
+
+`build.ps1` resolves a program's local `%import`s next to that program, so an
+example's own modules live in its folder; only the wrapper package is shared
+(via `-srcdirs x16lib`). Output always lands in `build\<name>.prg`.
+
 ## Banking heavy modules into 8K RAM (`-Bank`)
 
 For big programs, you can relocate chosen library modules out of low RAM into 8K
@@ -99,19 +135,19 @@ fully callable — their wrappers switch the bank, call, and switch back.
 **Bank-layout file (recommended)** — one line per bank, `bank <N>, "mod,mod"`:
 
 ```
-# examples\twobank.banks
+# examples\twobank\twobank.banks
 bank 22, "shapes,bitmap2h"
 bank 23, "string"
 ```
 ```powershell
-.\build.ps1 examples\twobank.p8 -BankFile examples\twobank.banks
+.\build.ps1 examples\twobank\twobank.p8 -BankFile examples\twobank\twobank.banks
 ```
 That yields a **503-byte** main PRG plus `build\BANK22.BIN` (graphics) and
 `build\BANK23.BIN` (strings) — the whole library footprint is out of low RAM.
 
 **Inline single bank** (shorthand for one line):
 ```powershell
-.\build.ps1 examples\shapes.p8 -Bank "shapes,bitmap2h" -BankNum 22
+.\build.ps1 examples\shapes\shapes.p8 -Bank "shapes,bitmap2h" -BankNum 22
 ```
 For `shapes.p8` this drops the main PRG from **~6 KB to ~0.6 KB** of low RAM.
 
@@ -143,12 +179,12 @@ Constraints (the honest limits):
 The X16 can't decode images at runtime, so convert on the PC and load the result.
 `tools/img2bmx.py` (Pillow) turns any image into a BMX file sized for the VERA_2
 640×480 8bpp bitmap — **any format Pillow reads** (JPG, PNG, WEBP, AVIF, GIF, BMP,
-TIFF, …), plus HEIC/HEIF when `pillow-heif` is installed. `examples/imgview.p8`
+TIFF, …), plus HEIC/HEIF when `pillow-heif` is installed. `examples/imgview/imgview.p8`
 shows it with a single library call:
 
 ```powershell
 python tools\img2bmx.py photo.jpg build\IMAGE.BMX     # fit + letterbox (--stretch to fill)
-.\build.ps1 examples\imgview.p8 -Run
+.\build.ps1 examples\imgview\imgview.p8 -Run
 ```
 
 ```prog8
@@ -161,6 +197,25 @@ into VERA_2 SDRAM, so the program stays ~3 KB. `cx.bmx_load_hires` requires
 X16_Library ≥ v0.11.6. (Filenames are lowercase in the source on purpose — Prog8's
 PETSCII maps `a-z` to `$41-$5A`, which the KERNAL reads as the upper-case host name.)
 
+## `kalk` — a spreadsheet in the examples
+
+`examples/kalk/` is a port of [zserge's **kalk**](https://github.com/zserge/kalk),
+a VisiCalc-style terminal spreadsheet — a worked example of building a whole
+application on this wrapper. Every run-time service (floating point, screen,
+keyboard, files, banked memory) is a `cx.*` call, with nothing from Prog8's own
+stdlib. A 26 x 256 sheet with formulas, cell formats, replicate, title locking
+and CSV files; the grid itself lives in eight 8K RAM banks.
+
+```powershell
+.\build.ps1 examples\kalk\kalk.p8 -Run
+.\build.ps1 examples\kalk\kalktest.p8 -Run    # the engine self-test
+```
+
+**See [`examples/kalk/README.md`](examples/kalk/README.md)** for the key and
+command reference, the formula syntax, how it maps onto the library, and the
+two Prog8 pitfalls it ran into (zero-page collisions with `X16_P0..P7`, and
+static locals in a recursive parser).
+
 ## The call ABI
 
 The wrappers mirror the library's conventions exactly:
@@ -169,9 +224,9 @@ The wrappers mirror the library's conventions exactly:
   the zero-page block `X16_P0..P7` (`$22`–`$29`). The generator emits the right
   loads for each routine.
 * Word arguments are passed whole (the wrapper splits them into low/high).
-* **Return values** (`-> ubyte` / `-> uword` / `-> bool`) are *best-effort*,
-  derived from each routine's header note (register in `A`, `A/X`, or carry).
-  When a routine returns something more elaborate, consult the X16_Library docs.
+* **Return values** (`-> ubyte` / `-> uword` / `-> bool`) come from the
+  routine's `out:` header — see *Coverage* below for exactly how, and for the
+  cases the generator deliberately leaves untyped.
 
 Example — a filled rounded rectangle (all args in the P block, colour in `A`):
 
@@ -181,16 +236,28 @@ cx.shape_frrect(40, 40, 200, 110, 28, 1)
 
 ## Coverage
 
-The wrapper exposes **519 routines** across every X16_Library module — VERA,
+The wrapper exposes **671 routines** across every X16_Library module — VERA,
 screen, palette, sprites, tiles, all six bitmap engines, shapes (circle, disc,
 poly, rrect, arc, pie, bezier), graph/framebuffer/console, PSG/YM/PCM/ADPCM and
 the ROM-audio API, serial/I2C/SPI/ZiModem, keyboard/mouse, clock, banking,
-file/DOS/IEC, math, strings, BCD, fixed/float/double, and more — plus **423
-constants**. Any of them can be called; only the modules you use are linked.
+file/DOS/IEC, math, strings, BCD, the 8 KB LIFO stack and FIFO ring, character
+classification, 16/32-bit integers, fixed/float/double, and more — plus **423
+constants**. Only the modules you use are linked.
 
-The only routines not wrapped are those whose "friendly macro" does
-assemble-time arithmetic on an argument (they assume a compile-time constant and
-can't be driven with a runtime value). Call those directly via inline asm.
+A wrapper exists for a routine when the library gives it an `xm_` "friendly
+macro" — that is what the generator reads to learn the calling convention. The
+one gap left is that a handful of macros do **assemble-time arithmetic on an
+argument**: they assume a compile-time constant and cannot be driven with a
+runtime value, so no wrapper is generated. Call those through inline asm.
+**Return values** (`-> ubyte` / `-> uword` / `-> bool`) are read from each
+routine's `out:` header in the library: `A` or `X` or `Y` becomes a `ubyte`,
+`A = low, X = high` a `uword`, and a documented carry a `bool`. **163** of the
+wrappers carry one. The derivation refuses to guess — a routine that documents
+both a carry and a register (`gfx8h_read`: "carry clear, A = colour; carry set
+if off screen") gets no return type rather than a plausible-looking wrong one,
+because a wrapper with the wrong type is a bug in every program that trusts it.
+For those, add an explicit `; -> ...` note above the macro in `sugar.asm`, which
+always wins, or read the register with a two-line asm shim.
 
 ## Regenerating
 
@@ -230,10 +297,17 @@ python tools\acme_doc2prog8.py [src_tutorial] [dst_tutorial]
 
 ## Zero-page note
 
-The library owns ZP `$22-$31`. Prog8's `%zeropage basicsafe` allocates its own
-variables from a free list and generally coexists; if you hit corruption in a
-program that leans heavily on both, use `%zeropage dontuse` (slower, but keeps
-ZP entirely clear for the library).
+The library owns ZP `$22-$31` (`X16_P0..P7` for arguments, `X16_T0..` for
+scratch). Prog8's `%zeropage basicsafe` **also** hands out `$22-$31` — it is
+BASIC-safe, not library-safe — so as soon as a program has more than a couple
+of variables in ZP, every `cx.*` call silently corrupts them. The symptom is
+nasty: values that change on their own across a library call.
+
+Small programs like `hello.p8` get away with it because nothing lands there.
+Anything larger should use **`%zeropage dontuse`**, which keeps ZP entirely
+clear for the library (a little slower, since Prog8's variables move to
+absolute addresses). `examples/kalk/kalk.p8` does exactly that; it was the first
+program here big enough to hit the collision.
 
 ## Launching the Prog8 compiler
 

@@ -26,11 +26,15 @@ This page expands the compact listing from `macroguide.md`. Macro arguments are 
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.dos_cmd(cmd, len)
+        ; execute command; -> A = status
+        cx.dos_cmd(1, 16)
     }
 }
+
 ```
 
 ## `cx.dos_status()`
@@ -47,11 +51,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; read DOS status
         cx.dos_status()
     }
 }
+
 ```
 
 ## `cx.dos_delete(name, len)`
@@ -68,9 +76,66 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.dos_delete(name, len)
+        ; delete file
+        cx.dos_delete(file_name, 16)
     }
 }
+
+%asm {{
+    file_name   !text "SAVEGAME,S,R", 0
+}}
+
 ```
+
+<!-- generated: friendly macros for previously unwrapped routines -->
+
+## More of dos
+
+These routines were always in the library; what they lacked was a
+friendly macro, so this is how to call them without writing the
+register set-up by hand. Most of them work on their module's own
+accumulator rather than on arguments.
+
+## `cx.dos_mkdir(name, len)`
+
+| Field | Details |
+|---|---|
+| Macro | `cx.dos_mkdir(name, len)` |
+| Purpose | make a directory |
+| Input parameters | `name`, `len` |
+| Output parameters | Nothing the macro can hand back; see the routine's header. |
+| More info | Available when `X16_USE_DOS` is enabled. |
+
+## `cx.dos_rmdir(name, len)`
+
+| Field | Details |
+|---|---|
+| Macro | `cx.dos_rmdir(name, len)` |
+| Purpose | remove a directory |
+| Input parameters | `name`, `len` |
+| Output parameters | Nothing the macro can hand back; see the routine's header. |
+| More info | Available when `X16_USE_DOS` is enabled. |
+
+## `cx.dos_chdir(name, len)`
+
+| Field | Details |
+|---|---|
+| Macro | `cx.dos_chdir(name, len)` |
+| Purpose | change directory ("//" is the root) |
+| Input parameters | `name`, `len` |
+| Output parameters | Nothing the macro can hand back; see the routine's header. |
+| More info | Available when `X16_USE_DOS` is enabled. |
+
+## `cx.dos_rename(newname, newlen, oldname, oldlen)`
+
+| Field | Details |
+|---|---|
+| Macro | `cx.dos_rename(newname, newlen, oldname, oldlen)` |
+| Purpose | One-call wrappers. Each takes A = name low, X = name high, |
+| Input parameters | `newname`, `newlen`, `oldname`, `oldlen` |
+| Output parameters | Nothing the macro can hand back; see the routine's header. |
+| More info | Available when `X16_USE_DOS` is enabled. |

@@ -26,11 +26,16 @@ This page expands the compact listing from `macroguide.md`. Macro arguments are 
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; sample / read a joystick
         cx.joy_scan()
+        cx.joy_get(1)
     }
 }
+
 ```
 
 ## `cx.mouse_show(cursor) / cx.mouse_hide() / cx.mouse_get()`
@@ -47,11 +52,17 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.mouse_show(cursor)
+        ; mouse
+        cx.mouse_show(0)
+        cx.mouse_hide()
+        cx.mouse_get()
     }
 }
+
 ```
 
 ## `cx.key_get() / cx.key_wait() / cx.key_peek()`
@@ -68,9 +79,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; keyboard
         cx.key_get()
+        cx.key_wait()
+        cx.key_peek()
     }
 }
+
 ```

@@ -26,11 +26,20 @@ This page expands the compact listing from `macroguide.md`. Macro arguments are 
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.zx0_decompress(src, dst)
+        ; decompress ZX0; -> A/X = one past the last output byte
+        cx.zx0_decompress(packed_data, work_buffer)
     }
 }
+
+%asm {{
+    packed_data !binary "asset.packed"
+    work_buffer !fill 64, 0
+}}
+
 ```
 
 ## `cx.tsc_decompress(src, dst)`
@@ -47,9 +56,18 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.tsc_decompress(src, dst)
+        ; decompress TSC; -> A/X = one past the last output byte
+        cx.tsc_decompress(packed_data, work_buffer)
     }
 }
+
+%asm {{
+    packed_data !binary "asset.packed"
+    work_buffer !fill 64, 0
+}}
+
 ```

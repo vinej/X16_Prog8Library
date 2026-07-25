@@ -26,11 +26,15 @@ This page expands the compact listing from `macroguide.md`. Macro arguments are 
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.mse_config(cursor, width8, height8)
+        ; configure mouse cursor
+        cx.mse_config(0, 1, 1)
     }
 }
+
 ```
 
 ## `cx.mse_scan() / cx.mse_get() / cx.mse_get_to(zp)`
@@ -47,11 +51,17 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; mouse sample/read helpers
         cx.mse_scan()
+        cx.mse_get()
+        cx.mse_get_to(1)
     }
 }
+
 ```
 
 ## `cx.mse_show(cursor) / cx.mse_show_keep() / cx.mse_hide()`
@@ -68,9 +78,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.mse_show(cursor)
+        ; mouse visibility helpers
+        cx.mse_show(0)
+        cx.mse_show_keep()
+        cx.mse_hide()
     }
 }
+
 ```

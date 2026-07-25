@@ -26,11 +26,19 @@ This page expands the compact listing from `macroguide.md`. Macro arguments are 
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.mem_fill(dst, count, val)
+        ; fill (streams to VERA too)
+        cx.mem_fill(work_buffer, 32, $20)
     }
 }
+
+%asm {{
+    work_buffer !fill 64, 0
+}}
+
 ```
 
 ## `cx.mem_copy(src, dst, count)`
@@ -47,11 +55,20 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.mem_copy(src, dst, count)
+        ; copy
+        cx.mem_copy(pixel_run, work_buffer, 32)
     }
 }
+
+%asm {{
+    pixel_run   !byte 1, 2, 3, 4, 4, 3, 2, 1
+    work_buffer !fill 64, 0
+}}
+
 ```
 
 ## `cx.mem_crc(addr, count)`
@@ -68,11 +85,19 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.mem_crc(addr, count)
+        ; CRC-16
+        cx.mem_crc(work_buffer, 32)
     }
 }
+
+%asm {{
+    work_buffer !fill 64, 0
+}}
+
 ```
 
 ## `cx.mem_decompress(src, dst)`
@@ -89,9 +114,18 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.mem_decompress(src, dst)
+        ; LZSA2
+        cx.mem_decompress(packed_data, work_buffer)
     }
 }
+
+%asm {{
+    packed_data !binary "asset.packed"
+    work_buffer !fill 64, 0
+}}
+
 ```

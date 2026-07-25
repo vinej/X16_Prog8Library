@@ -26,11 +26,15 @@ This page expands the compact listing from `macroguide.md`. Macro arguments are 
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.bank_alloc_init(first, last)
+        ; initialize allocator range
+        cx.bank_alloc_init(0, 1)
     }
 }
+
 ```
 
 ## `cx.bank_alloc()`
@@ -47,11 +51,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; allocate one bank; -> carry clear, A = bank
         cx.bank_alloc()
     }
 }
+
 ```
 
 ## `cx.bank_free(bank)`
@@ -68,11 +76,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.bank_free(bank)
+        ; free one bank
+        cx.bank_free(1)
     }
 }
+
 ```
 
 ## `cx.bank_reserve(bank)`
@@ -89,9 +101,13 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.bank_reserve(bank)
+        ; reserve one bank
+        cx.bank_reserve(1)
     }
 }
+
 ```

@@ -26,11 +26,16 @@ This page expands the compact listing from `macroguide.md`. Macro arguments are 
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.layer_on(layer)
+        ; Write one tile into layer 0's map.
+        cx.layer_on(0)
+        cx.layer_off(0)
     }
 }
+
 ```
 
 ## `cx.layer_set_config(layer, cfg)`
@@ -47,11 +52,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.layer_set_config(layer, cfg)
+        ; Write one tile into layer 0's map.
+        cx.layer_set_config(0, $10)
     }
 }
+
 ```
 
 ## `cx.layer_set_mapbase(layer, base)`
@@ -68,11 +77,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.layer_set_mapbase(layer, base)
+        ; Write one tile into layer 0's map.
+        cx.layer_set_mapbase(0, $9f60)
     }
 }
+
 ```
 
 ## `cx.layer_scroll_x(layer, val) / cx.layer_scroll_y(layer, val)`
@@ -89,11 +102,16 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.layer_scroll_x(layer, val)
+        ; Write one tile into layer 0's map.
+        cx.layer_scroll_x(0, $20)
+        cx.layer_scroll_y(0, $20)
     }
 }
+
 ```
 
 ## `cx.tile_setptr(col, row)`
@@ -110,11 +128,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.tile_setptr(col, row)
+        ; Write one tile into layer 0's map.
+        cx.tile_setptr(14, 5)
     }
 }
+
 ```
 
 ## `cx.tile_put(col, row, code, attr)`
@@ -131,11 +153,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.tile_put(col, row, code, attr)
+        ; Write one tile into layer 0's map.
+        cx.tile_put(14, 5, 'A', $10)
     }
 }
+
 ```
 
 ## `cx.tile_get(col, row)`
@@ -152,9 +178,32 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.tile_get(col, row)
+        ; Write one tile into layer 0's map.
+        cx.tile_get(14, 5)
     }
 }
+
 ```
+
+<!-- generated: friendly macros for previously unwrapped routines -->
+
+## More of tile
+
+These routines were always in the library; what they lacked was a
+friendly macro, so this is how to call them without writing the
+register set-up by hand. Most of them work on their module's own
+accumulator rather than on arguments.
+
+## `cx.layer_set_tilebase(layer, base)`
+
+| Field | Details |
+|---|---|
+| Macro | `cx.layer_set_tilebase(layer, base)` |
+| Purpose | in: X = layer, A = base>>11<<2 | tile size bits |
+| Input parameters | `layer`, `base` |
+| Output parameters | Nothing the macro can hand back; see the routine's header. |
+| More info | Available when `X16_USE_TILE` is enabled. |

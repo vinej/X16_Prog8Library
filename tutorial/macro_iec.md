@@ -26,11 +26,16 @@ This page expands the compact listing from `macroguide.md`. Macro arguments are 
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.iec_listen(device)
+        ; bus attention helpers
+        cx.iec_listen(8)
+        cx.iec_talk(8)
     }
 }
+
 ```
 
 ## `cx.iec_second(command) / cx.iec_tksa(command)`
@@ -47,11 +52,16 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.iec_second(command)
+        ; secondary address helpers
+        cx.iec_second(1)
+        cx.iec_tksa(1)
     }
 }
+
 ```
 
 ## `cx.iec_ciout(byte) / cx.iec_acptr()`
@@ -68,11 +78,16 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.iec_ciout(byte)
+        ; byte I/O helpers
+        cx.iec_ciout('A')
+        cx.iec_acptr()
     }
 }
+
 ```
 
 ## `cx.iec_unlisten() / cx.iec_untalk()`
@@ -89,11 +104,16 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; release bus helpers
         cx.iec_unlisten()
+        cx.iec_untalk()
     }
 }
+
 ```
 
 ## `cx.iec_set_timeout(control) / cx.iec_readst()`
@@ -110,11 +130,16 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.iec_set_timeout(control)
+        ; timeout/status helpers
+        cx.iec_set_timeout(1)
+        cx.iec_readst()
     }
 }
+
 ```
 
 ## `cx.iec_macptr(dest, count) / cx.iec_mciout(src, count)`
@@ -131,11 +156,21 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.iec_macptr(dest, count)
+        ; block I/O helpers
+        cx.iec_macptr(work_buffer, 32)
+        cx.iec_mciout(pixel_run, 32)
     }
 }
+
+%asm {{
+    work_buffer !fill 64, 0
+    pixel_run   !byte 1, 2, 3, 4, 4, 3, 2, 1
+}}
+
 ```
 
 ## `cx.iec_open_channel(device, secondary) / cx.iec_data_channel(device, secondary) / cx.iec_talk_channel(device, secondary) / cx.iec_close_channel(device, secondary)`
@@ -152,9 +187,16 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.iec_open_channel(device, secondary)
+        ; channel helpers
+        cx.iec_open_channel(8, 0)
+        cx.iec_data_channel(8, 0)
+        cx.iec_talk_channel(8, 0)
+        cx.iec_close_channel(8, 0)
     }
 }
+
 ```

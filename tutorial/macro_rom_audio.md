@@ -26,11 +26,16 @@ This page expands the compact listing from `macroguide.md`. Macro arguments are 
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        ; see macro listing above
+        ; Initialize the ROM audio layer before using play-string helpers.
+        cx.ar_audio_init()
+        cx.ar_playstring_voice(0)
     }
 }
+
 ```
 
 ## `cx.ar_audio_init, cx.ar_playstring_voice voice`
@@ -47,11 +52,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; general ROM audio helpers
         cx.ar_audio_init()
     }
 }
+
 ```
 
 ## `cx.ar_fmplaystring(str, len, cx.ar_fmchordstring str, len, cx.ar_psgplaystring str, len, cx.ar_psgchordstring str, len)`
@@ -68,11 +77,19 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.ar_fmplaystring(str, len)
+        ; play strings/chords
+        cx.ar_fmplaystring(source_text, 16)
     }
 }
+
+%asm {{
+    source_text  !text "LEVEL/01", 0
+}}
+
 ```
 
 ## `cx.ar_fmfreq(channel, hz, cx.ar_fmfreq_no_retrigger channel, hz, cx.ar_fmnote channel, note, kf, cx.ar_fmnote_no_retrigger channel, note, kf, cx.ar_fmvib speed, depth)`
@@ -89,11 +106,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.ar_fmfreq(channel, hz)
+        ; FM helpers
+        cx.ar_fmfreq(0, 1)
     }
 }
+
 ```
 
 ## `cx.ar_psgfreq(voice, hz, cx.ar_psgnote voice, note, kf, cx.ar_psgwav voice, wave)`
@@ -110,11 +131,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.ar_psgfreq(voice, hz)
+        ; PSG helpers
+        cx.ar_psgfreq(0, 1)
     }
 }
+
 ```
 
 ## `cx.ar_note_bas2fm, bas2midi, bas2psg, fm2bas, fm2midi, fm2psg, freq2bas/fm/midi/psg, midi2bas/fm/psg, psg2bas/fm/midi`
@@ -131,11 +156,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.ar_note_bas2fm()
+        ; note conversion
+        cx.ar_note_bas2fm(60)
     }
 }
+
 ```
 
 ## `cx.ar_psg_init, cx.ar_psg_playfreq, cx.ar_psg_read_raw/cooked, cx.ar_psg_setatten/freq/pan/vol, cx.ar_psg_write, cx.ar_psg_write_fast, cx.ar_psg_getatten/pan`
@@ -152,11 +181,16 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; ROM PSG shadows
         cx.ar_psg_init()
+        cx.ar_psg_read_cooked($20)
     }
 }
+
 ```
 
 ## `cx.ar_ym_init, cx.ar_ym_loaddefpatches, cx.ar_ym_loadpatch_rom, cx.ar_ym_loadpatchlfn, cx.ar_ym_playdrum/playnote, cx.ar_ym_setatten/drum/note/pan, cx.ar_ym_read_raw/cooked, cx.ar_ym_release, cx.ar_ym_trigger, cx.ar_ym_trigger_no_retrigger, cx.ar_ym_write, cx.ar_ym_getatten/pan, cx.ar_ym_get_chip_type`
@@ -173,9 +207,14 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; ROM YM shadows
         cx.ar_ym_init()
+        cx.ar_ym_playnote(0, $4c, 0)
     }
 }
+
 ```

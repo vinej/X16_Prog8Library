@@ -26,11 +26,17 @@ This page expands the compact listing from `macroguide.md`. Macro arguments are 
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; FX control
         cx.fxu_off()
+        cx.fxu_get_ctrl()
+        cx.fxu_set_ctrl($01)
     }
 }
+
 ```
 
 ## `cx.fxu_ctrl_on(mask) / cx.fxu_ctrl_off(mask)`
@@ -47,11 +53,16 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.fxu_ctrl_on(mask)
+        ; set/clear FX bits
+        cx.fxu_ctrl_on($01)
+        cx.fxu_ctrl_off($01)
     }
 }
+
 ```
 
 ## `cx.fxu_addr1_mode(mode)`
@@ -68,11 +79,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.fxu_addr1_mode(mode)
+        ; ADDR1 mode bits
+        cx.fxu_addr1_mode(0)
     }
 }
+
 ```
 
 ## `cx.fxu_cache_write_on/off, cx.fxu_cache_fill_on/off, cx.fxu_cache_cycle_on/off`
@@ -89,11 +104,16 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; cache modes
         cx.fxu_cache_write_on()
+        cx.fxu_cache_write_off()
     }
 }
+
 ```
 
 ## `cx.fxu_transparent_on/off, cx.fxu_4bit_on/off, cx.fxu_hop_on/off`
@@ -110,11 +130,16 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; transparent, 4-bit, 16-bit hop
         cx.fxu_transparent_on()
+        cx.fxu_transparent_off()
     }
 }
+
 ```
 
 ## `cx.fxu_set_mult(mult) / cx.fxu_set_cache(b0, b1, b2, b3)`
@@ -131,11 +156,16 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.fxu_set_mult(mult)
+        ; multiplier/cache registers
+        cx.fxu_set_mult(16)
+        cx.fxu_set_cache(1, 1, 1, 1)
     }
 }
+
 ```
 
 ## `cx.fxu_reset_accum() / cx.fxu_accumulate()`
@@ -152,11 +182,16 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; accumulator helpers
         cx.fxu_reset_accum()
+        cx.fxu_accumulate()
     }
 }
+
 ```
 
 ## `cx.fxu_cache_fill0/1 / cx.fxu_cache_write0/1 mask`
@@ -173,11 +208,17 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; cache fill/write primitives
         cx.fxu_cache_fill0()
+        cx.fxu_cache_write0($01)
+        cx.fxu_cache_fill1()
     }
 }
+
 ```
 
 ## `cx.fxu_set_incr(xinc, yinc) / cx.fxu_set_pos(xpos, ypos) / cx.fxu_set_subpos(xsub, ysub)`
@@ -194,11 +235,17 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.fxu_set_incr(xinc, yinc)
+        ; affine stepping state
+        cx.fxu_set_incr($0100, $0100)
+        cx.fxu_set_pos(0, 0)
+        cx.fxu_set_subpos(0, 0)
     }
 }
+
 ```
 
 ## `cx.fxu_get_poly_fill() / cx.fxu_set_tilebase(value) / cx.fxu_set_mapbase(value)`
@@ -215,9 +262,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; polygon/tile/map helpers
         cx.fxu_get_poly_fill()
+        cx.fxu_set_tilebase($1234)
+        cx.fxu_set_mapbase($1234)
     }
 }
+
 ```

@@ -535,6 +535,135 @@ cx {
         }}
     }
 
+    ; point VERA port 0 at a character cell, for the blit calls below
+    sub screen_addr(ubyte row, ubyte col) {
+        %asm {{
+        .if BANK_X16_USE_SCREEN_EXTRA
+            lda $00
+            pha
+            lda #BANK_X16_USE_SCREEN_EXTRA
+            sta $00
+        .endif
+            ldx p8v_row
+            ldy p8v_col
+            jsr x16src.screen_addr
+        .if BANK_X16_USE_SCREEN_EXTRA
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    ; ...and port 1, which is where a vera_copy destination goes
+    sub screen_addr1(ubyte row, ubyte col) {
+        %asm {{
+        .if BANK_X16_USE_SCREEN_EXTRA
+            lda $00
+            pha
+            lda #BANK_X16_USE_SCREEN_EXTRA
+            sta $00
+        .endif
+            ldx p8v_row
+            ldy p8v_col
+            jsr x16src.screen_addr1
+        .if BANK_X16_USE_SCREEN_EXTRA
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    ; slide a rectangle of text rows: .dir 0 moves the picture up, 1 down
+    sub screen_scroll(ubyte top, ubyte left, ubyte height, ubyte width, ubyte rows, ubyte dir) {
+        %asm {{
+        .if BANK_X16_USE_SCREEN_EXTRA
+            lda $00
+            pha
+            lda #BANK_X16_USE_SCREEN_EXTRA
+            sta $00
+        .endif
+            lda p8v_top
+            sta $22
+            lda p8v_left
+            sta $23
+            lda p8v_height
+            sta $24
+            lda p8v_width
+            sta $25
+            lda p8v_rows
+            sta $26
+            lda p8v_dir
+            jsr x16src.screen_scroll
+        .if BANK_X16_USE_SCREEN_EXTRA
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    ; PETSCII -> screen code
+    sub screen_scode(ubyte ch) -> ubyte {
+        %asm {{
+        .if BANK_X16_USE_SCREEN_EXTRA
+            lda $00
+            pha
+            lda #BANK_X16_USE_SCREEN_EXTRA
+            sta $00
+        .endif
+            lda p8v_ch
+            jsr x16src.screen_scode
+            sta p8v_ret8
+        .if BANK_X16_USE_SCREEN_EXTRA
+            pla
+            sta $00
+        .endif
+        }}
+        return ret8
+    }
+
+    ; write .count characters from .addr, all in colour .col (fg | bg << 4)
+    sub screen_blit(uword addr, ubyte count, ubyte col) {
+        %asm {{
+        .if BANK_X16_USE_SCREEN_EXTRA
+            lda $00
+            pha
+            lda #BANK_X16_USE_SCREEN_EXTRA
+            sta $00
+        .endif
+            lda p8v_addr
+            sta $22
+            lda p8v_addr+1
+            sta $23
+            lda p8v_count
+            ldx p8v_col
+            jsr x16src.screen_blit
+        .if BANK_X16_USE_SCREEN_EXTRA
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    ; write .count copies of .ch in colour .col
+    sub screen_blitfill(ubyte count, ubyte col, ubyte ch) {
+        %asm {{
+        .if BANK_X16_USE_SCREEN_EXTRA
+            lda $00
+            pha
+            lda #BANK_X16_USE_SCREEN_EXTRA
+            sta $00
+        .endif
+            lda p8v_count
+            ldx p8v_col
+            ldy p8v_ch
+            jsr x16src.screen_blitfill
+        .if BANK_X16_USE_SCREEN_EXTRA
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
     ; print a NUL-terminated string
     sub screen_puts(uword addr) {
         %asm {{
@@ -1250,7 +1379,7 @@ cx {
     }
 
     ; gfx/bitmap8h  (640x480 @ 8bpp; VERA_2 SDRAM layer)
-    sub gfx8h_has() {
+    sub gfx8h_has() -> bool {
         %asm {{
         .if BANK_X16_USE_BITMAP8H
             lda $00
@@ -1259,11 +1388,15 @@ cx {
             sta $00
         .endif
             jsr x16src.gfx8h_has
+            lda #0
+            rol  a
+            sta p8v_retbit
         .if BANK_X16_USE_BITMAP8H
             pla
             sta $00
         .endif
         }}
+        return retbit
     }
 
     sub gfx8h_init() {
@@ -2298,7 +2431,7 @@ cx {
         }}
     }
 
-    sub gfx4l_read(uword x_, ubyte y_) {
+    sub gfx4l_read(uword x_, ubyte y_) -> ubyte {
         %asm {{
         .if BANK_X16_USE_BITMAP4L
             lda $00
@@ -2313,11 +2446,13 @@ cx {
             lda p8v_y_
             sta $24
             jsr x16src.gfx4l_read
+            sta p8v_ret8
         .if BANK_X16_USE_BITMAP4L
             pla
             sta $00
         .endif
         }}
+        return ret8
     }
 
     sub gfx4l_hline(uword x_, ubyte y_, uword len_, ubyte col) {
@@ -2566,7 +2701,7 @@ cx {
     }
 
     ; gfx/bitmap4h  (640x480 @ 4bpp; VERA_2 SDRAM layer)
-    sub gfx4h_has() {
+    sub gfx4h_has() -> bool {
         %asm {{
         .if BANK_X16_USE_BITMAP4H
             lda $00
@@ -2575,11 +2710,15 @@ cx {
             sta $00
         .endif
             jsr x16src.gfx4h_has
+            lda #0
+            rol  a
+            sta p8v_retbit
         .if BANK_X16_USE_BITMAP4H
             pla
             sta $00
         .endif
         }}
+        return retbit
     }
 
     sub gfx4h_init() {
@@ -3536,7 +3675,7 @@ cx {
         }}
     }
 
-    sub con_get_char() {
+    sub con_get_char() -> ubyte {
         %asm {{
         .if BANK_X16_USE_CONSOLE
             lda $00
@@ -3545,11 +3684,13 @@ cx {
             sta $00
         .endif
             jsr x16src.con_get_char
+            sta p8v_ret8
         .if BANK_X16_USE_CONSOLE
             pla
             sta $00
         .endif
         }}
+        return ret8
     }
 
     sub con_put_image(uword image, uword w, uword h) {
@@ -3597,7 +3738,7 @@ cx {
         }}
     }
 
-    sub fb_get_info() {
+    sub fb_get_info() -> ubyte {
         %asm {{
         .if BANK_X16_USE_FB
             lda $00
@@ -3606,11 +3747,13 @@ cx {
             sta $00
         .endif
             jsr x16src.fb_get_info
+            sta p8v_ret8
         .if BANK_X16_USE_FB
             pla
             sta $00
         .endif
         }}
+        return ret8
     }
 
     sub fb_set_palette(uword data, ubyte start_, ubyte count) {
@@ -5206,7 +5349,7 @@ cx {
     }
 
     ; audio/ym  (YM2151 FM)
-    sub ym_init() {
+    sub ym_init() -> bool {
         %asm {{
         .if BANK_X16_USE_YM
             lda $00
@@ -5215,14 +5358,18 @@ cx {
             sta $00
         .endif
             jsr x16src.ym_init
+            lda #0
+            rol  a
+            sta p8v_retbit
         .if BANK_X16_USE_YM
             pla
             sta $00
         .endif
         }}
+        return retbit
     }
 
-    sub ym_write(ubyte reg, ubyte val) {
+    sub ym_write(ubyte reg, ubyte val) -> bool {
         %asm {{
         .if BANK_X16_USE_YM
             lda $00
@@ -5233,11 +5380,15 @@ cx {
             lda p8v_val
             ldx p8v_reg
             jsr x16src.ym_write
+            lda #0
+            rol  a
+            sta p8v_retbit
         .if BANK_X16_USE_YM
             pla
             sta $00
         .endif
         }}
+        return retbit
     }
 
     sub ym_poke(ubyte reg, ubyte val) {
@@ -5259,7 +5410,7 @@ cx {
     }
 
     ; load a built-in ROM patch (0-162) into a channel
-    sub ym_patch_rom(ubyte channel, ubyte index) {
+    sub ym_patch_rom(ubyte channel, ubyte index) -> bool {
         %asm {{
         .if BANK_X16_USE_YM
             lda $00
@@ -5271,11 +5422,15 @@ cx {
             ldx p8v_index
             sec
             jsr x16src.ym_patch
+            lda #0
+            rol  a
+            sta p8v_retbit
         .if BANK_X16_USE_YM
             pla
             sta $00
         .endif
         }}
+        return retbit
     }
 
     sub ym_note(ubyte channel, ubyte kc, ubyte kf) {
@@ -5298,7 +5453,7 @@ cx {
     }
 
     ; note = (octave<<4)|1..12; note 0 releases
-    sub ym_note_bas(ubyte channel, ubyte note) {
+    sub ym_note_bas(ubyte channel, ubyte note) -> bool {
         %asm {{
         .if BANK_X16_USE_YM
             lda $00
@@ -5309,11 +5464,15 @@ cx {
             lda p8v_channel
             ldx p8v_note
             jsr x16src.ym_note_bas
+            lda #0
+            rol  a
+            sta p8v_retbit
         .if BANK_X16_USE_YM
             pla
             sta $00
         .endif
         }}
+        return retbit
     }
 
     sub ym_release_note(ubyte channel) {
@@ -6827,7 +6986,7 @@ cx {
         }}
     }
 
-    sub adpcm_nibble(ubyte code) {
+    sub adpcm_nibble(ubyte code) -> uword {
         %asm {{
         .if BANK_X16_USE_ADPCM
             lda $00
@@ -6837,11 +6996,14 @@ cx {
         .endif
             lda p8v_code
             jsr x16src.adpcm_nibble
+            sta p8v_ret16
+            stx p8v_ret16+1
         .if BANK_X16_USE_ADPCM
             pla
             sta $00
         .endif
         }}
+        return ret16
     }
 
     sub adpcm_block(uword src, uword dst, uword count) {
@@ -7408,7 +7570,7 @@ cx {
         }}
     }
 
-    sub bank_reserve(ubyte bank) {
+    sub bank_reserve(ubyte bank) -> bool {
         %asm {{
         .if BANK_X16_USE_BANKALLOC
             lda $00
@@ -7418,11 +7580,15 @@ cx {
         .endif
             lda p8v_bank
             jsr x16src.bank_reserve
+            lda #0
+            rol  a
+            sta p8v_retbit
         .if BANK_X16_USE_BANKALLOC
             pla
             sta $00
         .endif
         }}
+        return retbit
     }
 
     ; storage/mem  (KERNAL block ops; stream to/from VERA_DATA0 too)
@@ -8044,7 +8210,7 @@ cx {
         }}
     }
 
-    sub fio_chrin() {
+    sub fio_chrin() -> ubyte {
         %asm {{
         .if BANK_X16_USE_FILEIO
             lda $00
@@ -8053,11 +8219,13 @@ cx {
             sta $00
         .endif
             jsr x16src.fio_chrin
+            sta p8v_ret8
         .if BANK_X16_USE_FILEIO
             pla
             sta $00
         .endif
         }}
+        return ret8
     }
 
     sub fio_chrout(ubyte byte_) {
@@ -8077,7 +8245,7 @@ cx {
         }}
     }
 
-    sub fio_readst() {
+    sub fio_readst() -> ubyte {
         %asm {{
         .if BANK_X16_USE_FILEIO
             lda $00
@@ -8086,14 +8254,16 @@ cx {
             sta $00
         .endif
             jsr x16src.fio_readst
+            sta p8v_ret8
         .if BANK_X16_USE_FILEIO
             pla
             sta $00
         .endif
         }}
+        return ret8
     }
 
-    sub fio_getin() {
+    sub fio_getin() -> ubyte {
         %asm {{
         .if BANK_X16_USE_FILEIO
             lda $00
@@ -8102,11 +8272,13 @@ cx {
             sta $00
         .endif
             jsr x16src.fio_getin
+            sta p8v_ret8
         .if BANK_X16_USE_FILEIO
             pla
             sta $00
         .endif
         }}
+        return ret8
     }
 
     sub fio_close_all() {
@@ -8380,7 +8552,7 @@ cx {
         return ret8
     }
 
-    sub cos8(ubyte angle) {
+    sub cos8(ubyte angle) -> ubyte {
         %asm {{
         .if BANK_X16_USE_MATH
             lda $00
@@ -8390,11 +8562,13 @@ cx {
         .endif
             lda p8v_angle
             jsr x16src.cos8
+            sta p8v_ret8
         .if BANK_X16_USE_MATH
             pla
             sta $00
         .endif
         }}
+        return ret8
     }
 
     ; -> A = 1..255
@@ -8417,7 +8591,7 @@ cx {
         return ret8
     }
 
-    sub cos8u(ubyte angle) {
+    sub cos8u(ubyte angle) -> ubyte {
         %asm {{
         .if BANK_X16_USE_MATH
             lda $00
@@ -8427,11 +8601,13 @@ cx {
         .endif
             lda p8v_angle
             jsr x16src.cos8u
+            sta p8v_ret8
         .if BANK_X16_USE_MATH
             pla
             sta $00
         .endif
         }}
+        return ret8
     }
 
     ; -> A = angle 0-255
@@ -8570,7 +8746,7 @@ cx {
     }
 
     ; util/bits
-    sub catnib(ubyte hi, ubyte lo) {
+    sub catnib(ubyte hi, ubyte lo) -> ubyte {
         %asm {{
         .if BANK_X16_USE_BITS
             lda $00
@@ -8581,14 +8757,16 @@ cx {
             lda p8v_hi
             ldx p8v_lo
             jsr x16src.catnib
+            sta p8v_ret8
         .if BANK_X16_USE_BITS
             pla
             sta $00
         .endif
         }}
+        return ret8
     }
 
-    sub hinib(ubyte byte_) {
+    sub hinib(ubyte byte_) -> ubyte {
         %asm {{
         .if BANK_X16_USE_BITS
             lda $00
@@ -8598,14 +8776,16 @@ cx {
         .endif
             lda p8v_byte_
             jsr x16src.hinib
+            sta p8v_ret8
         .if BANK_X16_USE_BITS
             pla
             sta $00
         .endif
         }}
+        return ret8
     }
 
-    sub lonib(ubyte byte_) {
+    sub lonib(ubyte byte_) -> ubyte {
         %asm {{
         .if BANK_X16_USE_BITS
             lda $00
@@ -8615,11 +8795,13 @@ cx {
         .endif
             lda p8v_byte_
             jsr x16src.lonib
+            sta p8v_ret8
         .if BANK_X16_USE_BITS
             pla
             sta $00
         .endif
         }}
+        return ret8
     }
 
     sub bit_set(uword addr, ubyte mask) {
@@ -9334,7 +9516,7 @@ cx {
         }}
     }
 
-    sub f_cmp(uword addr) {
+    sub f_cmp(uword addr) -> ubyte {
         %asm {{
         .if BANK_X16_USE_FLOAT
             lda $00
@@ -9345,11 +9527,13 @@ cx {
             lda p8v_addr
             ldy p8v_addr+1
             jsr x16src.f_cmp
+            sta p8v_ret8
         .if BANK_X16_USE_FLOAT
             pla
             sta $00
         .endif
         }}
+        return ret8
     }
 
     ; FAC = mem - FAC
@@ -9706,7 +9890,7 @@ cx {
         return retbit
     }
 
-    sub rb_count() {
+    sub rb_count() -> ubyte {
         %asm {{
         .if BANK_X16_USE_BUFFERS
             lda $00
@@ -9715,11 +9899,13 @@ cx {
             sta $00
         .endif
             jsr x16src.rb_count
+            sta p8v_ret8
         .if BANK_X16_USE_BUFFERS
             pla
             sta $00
         .endif
         }}
+        return ret8
     }
 
     sub stk_init() {
@@ -9781,7 +9967,7 @@ cx {
         return retbit
     }
 
-    sub stk_depth() {
+    sub stk_depth() -> ubyte {
         %asm {{
         .if BANK_X16_USE_BUFFERS
             lda $00
@@ -9790,11 +9976,13 @@ cx {
             sta $00
         .endif
             jsr x16src.stk_depth
+            sta p8v_ret8
         .if BANK_X16_USE_BUFFERS
             pla
             sta $00
         .endif
         }}
+        return ret8
     }
 
     ; util/zx0 and util/tscrunch -> A/X = one past the last output byte
@@ -9825,7 +10013,7 @@ cx {
         return ret16
     }
 
-    sub tsc_decompress(uword src, uword dst) {
+    sub tsc_decompress(uword src, uword dst) -> uword {
         %asm {{
         .if BANK_X16_USE_TSC
             lda $00
@@ -9842,11 +10030,14 @@ cx {
             lda p8v_dst+1
             sta $25
             jsr x16src.tsc_decompress
+            sta p8v_ret16
+            stx p8v_ret16+1
         .if BANK_X16_USE_TSC
             pla
             sta $00
         .endif
         }}
+        return ret16
     }
 
     ; system/clock -> A/X/Y = 24-bit 60 Hz timer, low to high
@@ -10726,7 +10917,7 @@ cx {
     }
 
     ; string/string -> Y = length
-    sub str_length(uword str_) {
+    sub str_length(uword str_) -> ubyte {
         %asm {{
         .if BANK_X16_USE_STRING
             lda $00
@@ -10737,15 +10928,17 @@ cx {
             lda p8v_str_
             ldx p8v_str_+1
             jsr x16src.str_length
+            sty p8v_ret8
         .if BANK_X16_USE_STRING
             pla
             sta $00
         .endif
         }}
+        return ret8
     }
 
     ; -> Y = length copied
-    sub str_copy(uword src, uword dst) {
+    sub str_copy(uword src, uword dst) -> ubyte {
         %asm {{
         .if BANK_X16_USE_STRING
             lda $00
@@ -10760,14 +10953,16 @@ cx {
             lda p8v_src
             ldx p8v_src+1
             jsr x16src.str_copy
+            sty p8v_ret8
         .if BANK_X16_USE_STRING
             pla
             sta $00
         .endif
         }}
+        return ret8
     }
 
-    sub str_ncopy(uword src, uword dst, ubyte max_) {
+    sub str_ncopy(uword src, uword dst, ubyte max_) -> ubyte {
         %asm {{
         .if BANK_X16_USE_STRING
             lda $00
@@ -10783,11 +10978,13 @@ cx {
             lda p8v_src
             ldx p8v_src+1
             jsr x16src.str_ncopy
+            sty p8v_ret8
         .if BANK_X16_USE_STRING
             pla
             sta $00
         .endif
         }}
+        return ret8
     }
 
     ; -> A = resulting length
@@ -10815,7 +11012,7 @@ cx {
         return ret8
     }
 
-    sub str_nappend(uword tgt, uword suffix, ubyte max_) {
+    sub str_nappend(uword tgt, uword suffix, ubyte max_) -> ubyte {
         %asm {{
         .if BANK_X16_USE_STRING
             lda $00
@@ -10831,11 +11028,13 @@ cx {
             lda p8v_tgt
             ldx p8v_tgt+1
             jsr x16src.str_nappend
+            sta p8v_ret8
         .if BANK_X16_USE_STRING
             pla
             sta $00
         .endif
         }}
+        return ret8
     }
 
     ; -> A = -1 / 0 / 1
@@ -10921,7 +11120,7 @@ cx {
         }}
     }
 
-    sub str_upper(uword str_) {
+    sub str_upper(uword str_) -> ubyte {
         %asm {{
         .if BANK_X16_USE_STRING_CASE
             lda $00
@@ -10932,14 +11131,16 @@ cx {
             lda p8v_str_
             ldx p8v_str_+1
             jsr x16src.str_upper
+            sty p8v_ret8
         .if BANK_X16_USE_STRING_CASE
             pla
             sta $00
         .endif
         }}
+        return ret8
     }
 
-    sub str_upper_iso(uword str_) {
+    sub str_upper_iso(uword str_) -> ubyte {
         %asm {{
         .if BANK_X16_USE_STRING_CASE
             lda $00
@@ -10950,11 +11151,13 @@ cx {
             lda p8v_str_
             ldx p8v_str_+1
             jsr x16src.str_upper_iso
+            sty p8v_ret8
         .if BANK_X16_USE_STRING_CASE
             pla
             sta $00
         .endif
         }}
+        return ret8
     }
 
     ; -> A = -1 / 0 / 1
@@ -10982,7 +11185,7 @@ cx {
         return ret8
     }
 
-    sub str_compare_nocase_iso(uword s1, uword s2) {
+    sub str_compare_nocase_iso(uword s1, uword s2) -> ubyte {
         %asm {{
         .if BANK_X16_USE_STRING_CASE
             lda $00
@@ -10997,11 +11200,13 @@ cx {
             lda p8v_s1
             ldx p8v_s1+1
             jsr x16src.str_compare_nocase_iso
+            sta p8v_ret8
         .if BANK_X16_USE_STRING_CASE
             pla
             sta $00
         .endif
         }}
+        return ret8
     }
 
     ; string/find -> carry set + A = index if found
@@ -11189,7 +11394,7 @@ cx {
     }
 
     ; -> Y = new length
-    sub str_ltrim(uword str_) {
+    sub str_ltrim(uword str_) -> ubyte {
         %asm {{
         .if BANK_X16_USE_STRING_SLICE
             lda $00
@@ -11200,14 +11405,16 @@ cx {
             lda p8v_str_
             ldx p8v_str_+1
             jsr x16src.str_ltrim
+            sty p8v_ret8
         .if BANK_X16_USE_STRING_SLICE
             pla
             sta $00
         .endif
         }}
+        return ret8
     }
 
-    sub str_rtrim(uword str_) {
+    sub str_rtrim(uword str_) -> ubyte {
         %asm {{
         .if BANK_X16_USE_STRING_SLICE
             lda $00
@@ -11218,14 +11425,16 @@ cx {
             lda p8v_str_
             ldx p8v_str_+1
             jsr x16src.str_rtrim
+            sty p8v_ret8
         .if BANK_X16_USE_STRING_SLICE
             pla
             sta $00
         .endif
         }}
+        return ret8
     }
 
-    sub str_trim(uword str_) {
+    sub str_trim(uword str_) -> ubyte {
         %asm {{
         .if BANK_X16_USE_STRING_SLICE
             lda $00
@@ -11236,7 +11445,2472 @@ cx {
             lda p8v_str_
             ldx p8v_str_+1
             jsr x16src.str_trim
+            sty p8v_ret8
         .if BANK_X16_USE_STRING_SLICE
+            pla
+            sta $00
+        .endif
+        }}
+        return ret8
+    }
+
+    ; Routines that had no friendly macro until now. Most work on their module's accumulator -- FAC, d_ac, i16_a/i16
+    sub f_zero() {
+        %asm {{
+        .if BANK_X16_USE_FLOAT
+            lda $00
+            pha
+            lda #BANK_X16_USE_FLOAT
+            sta $00
+        .endif
+            jsr x16src.f_zero
+        .if BANK_X16_USE_FLOAT
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub f_neg() {
+        %asm {{
+        .if BANK_X16_USE_FLOAT
+            lda $00
+            pha
+            lda #BANK_X16_USE_FLOAT
+            sta $00
+        .endif
+            jsr x16src.f_neg
+        .if BANK_X16_USE_FLOAT
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub f_abs() {
+        %asm {{
+        .if BANK_X16_USE_FLOAT
+            lda $00
+            pha
+            lda #BANK_X16_USE_FLOAT
+            sta $00
+        .endif
+            jsr x16src.f_abs
+        .if BANK_X16_USE_FLOAT
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub f_int() {
+        %asm {{
+        .if BANK_X16_USE_FLOAT
+            lda $00
+            pha
+            lda #BANK_X16_USE_FLOAT
+            sta $00
+        .endif
+            jsr x16src.f_int
+        .if BANK_X16_USE_FLOAT
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub f_sgn() -> ubyte {
+        %asm {{
+        .if BANK_X16_USE_FLOAT
+            lda $00
+            pha
+            lda #BANK_X16_USE_FLOAT
+            sta $00
+        .endif
+            jsr x16src.f_sgn
+            sta p8v_ret8
+        .if BANK_X16_USE_FLOAT
+            pla
+            sta $00
+        .endif
+        }}
+        return ret8
+    }
+
+    sub f_to_s16() -> uword {
+        %asm {{
+        .if BANK_X16_USE_FLOAT
+            lda $00
+            pha
+            lda #BANK_X16_USE_FLOAT
+            sta $00
+        .endif
+            jsr x16src.f_to_s16
+            sta p8v_ret16
+            stx p8v_ret16+1
+        .if BANK_X16_USE_FLOAT
+            pla
+            sta $00
+        .endif
+        }}
+        return ret16
+    }
+
+    sub f_sqrt() {
+        %asm {{
+        .if BANK_X16_USE_FLOAT
+            lda $00
+            pha
+            lda #BANK_X16_USE_FLOAT
+            sta $00
+        .endif
+            jsr x16src.f_sqrt
+        .if BANK_X16_USE_FLOAT
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub f_ln() {
+        %asm {{
+        .if BANK_X16_USE_FLOAT
+            lda $00
+            pha
+            lda #BANK_X16_USE_FLOAT
+            sta $00
+        .endif
+            jsr x16src.f_ln
+        .if BANK_X16_USE_FLOAT
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub f_exp() {
+        %asm {{
+        .if BANK_X16_USE_FLOAT
+            lda $00
+            pha
+            lda #BANK_X16_USE_FLOAT
+            sta $00
+        .endif
+            jsr x16src.f_exp
+        .if BANK_X16_USE_FLOAT
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub f_sin() {
+        %asm {{
+        .if BANK_X16_USE_FLOAT
+            lda $00
+            pha
+            lda #BANK_X16_USE_FLOAT
+            sta $00
+        .endif
+            jsr x16src.f_sin
+        .if BANK_X16_USE_FLOAT
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub f_cos() {
+        %asm {{
+        .if BANK_X16_USE_FLOAT
+            lda $00
+            pha
+            lda #BANK_X16_USE_FLOAT
+            sta $00
+        .endif
+            jsr x16src.f_cos
+        .if BANK_X16_USE_FLOAT
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub f_tan() {
+        %asm {{
+        .if BANK_X16_USE_FLOAT
+            lda $00
+            pha
+            lda #BANK_X16_USE_FLOAT
+            sta $00
+        .endif
+            jsr x16src.f_tan
+        .if BANK_X16_USE_FLOAT
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub f_atan() {
+        %asm {{
+        .if BANK_X16_USE_FLOAT
+            lda $00
+            pha
+            lda #BANK_X16_USE_FLOAT
+            sta $00
+        .endif
+            jsr x16src.f_atan
+        .if BANK_X16_USE_FLOAT
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub f_to_str() -> uword {
+        %asm {{
+        .if BANK_X16_USE_FLOAT
+            lda $00
+            pha
+            lda #BANK_X16_USE_FLOAT
+            sta $00
+        .endif
+            jsr x16src.f_to_str
+            sta p8v_ret16
+            stx p8v_ret16+1
+        .if BANK_X16_USE_FLOAT
+            pla
+            sta $00
+        .endif
+        }}
+        return ret16
+    }
+
+    sub f_to_str_trim() -> uword {
+        %asm {{
+        .if BANK_X16_USE_FLOAT
+            lda $00
+            pha
+            lda #BANK_X16_USE_FLOAT
+            sta $00
+        .endif
+            jsr x16src.f_to_str_trim
+            sta p8v_ret16
+            stx p8v_ret16+1
+        .if BANK_X16_USE_FLOAT
+            pla
+            sta $00
+        .endif
+        }}
+        return ret16
+    }
+
+    sub d_neg() {
+        %asm {{
+        .if BANK_X16_USE_DOUBLE
+            lda $00
+            pha
+            lda #BANK_X16_USE_DOUBLE
+            sta $00
+        .endif
+            jsr x16src.d_neg
+        .if BANK_X16_USE_DOUBLE
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub d_abs() {
+        %asm {{
+        .if BANK_X16_USE_DOUBLE
+            lda $00
+            pha
+            lda #BANK_X16_USE_DOUBLE
+            sta $00
+        .endif
+            jsr x16src.d_abs
+        .if BANK_X16_USE_DOUBLE
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub d_to_s32() {
+        %asm {{
+        .if BANK_X16_USE_DOUBLE
+            lda $00
+            pha
+            lda #BANK_X16_USE_DOUBLE
+            sta $00
+        .endif
+            jsr x16src.d_to_s32
+        .if BANK_X16_USE_DOUBLE
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub d_sqrt() {
+        %asm {{
+        .if BANK_X16_USE_DOUBLE
+            lda $00
+            pha
+            lda #BANK_X16_USE_DOUBLE
+            sta $00
+        .endif
+            jsr x16src.d_sqrt
+        .if BANK_X16_USE_DOUBLE
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub d_exp() {
+        %asm {{
+        .if BANK_X16_USE_DOUBLE
+            lda $00
+            pha
+            lda #BANK_X16_USE_DOUBLE
+            sta $00
+        .endif
+            jsr x16src.d_exp
+        .if BANK_X16_USE_DOUBLE
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub d_ln() {
+        %asm {{
+        .if BANK_X16_USE_DOUBLE
+            lda $00
+            pha
+            lda #BANK_X16_USE_DOUBLE
+            sta $00
+        .endif
+            jsr x16src.d_ln
+        .if BANK_X16_USE_DOUBLE
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub d_sin() {
+        %asm {{
+        .if BANK_X16_USE_DOUBLE
+            lda $00
+            pha
+            lda #BANK_X16_USE_DOUBLE
+            sta $00
+        .endif
+            jsr x16src.d_sin
+        .if BANK_X16_USE_DOUBLE
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub d_cos() {
+        %asm {{
+        .if BANK_X16_USE_DOUBLE
+            lda $00
+            pha
+            lda #BANK_X16_USE_DOUBLE
+            sta $00
+        .endif
+            jsr x16src.d_cos
+        .if BANK_X16_USE_DOUBLE
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub d_tan() {
+        %asm {{
+        .if BANK_X16_USE_DOUBLE
+            lda $00
+            pha
+            lda #BANK_X16_USE_DOUBLE
+            sta $00
+        .endif
+            jsr x16src.d_tan
+        .if BANK_X16_USE_DOUBLE
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub d_atan() {
+        %asm {{
+        .if BANK_X16_USE_DOUBLE
+            lda $00
+            pha
+            lda #BANK_X16_USE_DOUBLE
+            sta $00
+        .endif
+            jsr x16src.d_atan
+        .if BANK_X16_USE_DOUBLE
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub d_sinh() {
+        %asm {{
+        .if BANK_X16_USE_DOUBLE
+            lda $00
+            pha
+            lda #BANK_X16_USE_DOUBLE
+            sta $00
+        .endif
+            jsr x16src.d_sinh
+        .if BANK_X16_USE_DOUBLE
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub d_cosh() {
+        %asm {{
+        .if BANK_X16_USE_DOUBLE
+            lda $00
+            pha
+            lda #BANK_X16_USE_DOUBLE
+            sta $00
+        .endif
+            jsr x16src.d_cosh
+        .if BANK_X16_USE_DOUBLE
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub d_tanh() {
+        %asm {{
+        .if BANK_X16_USE_DOUBLE
+            lda $00
+            pha
+            lda #BANK_X16_USE_DOUBLE
+            sta $00
+        .endif
+            jsr x16src.d_tanh
+        .if BANK_X16_USE_DOUBLE
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub d_to_str() {
+        %asm {{
+        .if BANK_X16_USE_DOUBLE
+            lda $00
+            pha
+            lda #BANK_X16_USE_DOUBLE
+            sta $00
+        .endif
+            jsr x16src.d_to_str
+        .if BANK_X16_USE_DOUBLE
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub i16_add() {
+        %asm {{
+        .if BANK_X16_USE_INT16
+            lda $00
+            pha
+            lda #BANK_X16_USE_INT16
+            sta $00
+        .endif
+            jsr x16src.i16_add
+        .if BANK_X16_USE_INT16
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub i16_sub() {
+        %asm {{
+        .if BANK_X16_USE_INT16
+            lda $00
+            pha
+            lda #BANK_X16_USE_INT16
+            sta $00
+        .endif
+            jsr x16src.i16_sub
+        .if BANK_X16_USE_INT16
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub i16_neg() {
+        %asm {{
+        .if BANK_X16_USE_INT16
+            lda $00
+            pha
+            lda #BANK_X16_USE_INT16
+            sta $00
+        .endif
+            jsr x16src.i16_neg
+        .if BANK_X16_USE_INT16
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub i16_abs() {
+        %asm {{
+        .if BANK_X16_USE_INT16
+            lda $00
+            pha
+            lda #BANK_X16_USE_INT16
+            sta $00
+        .endif
+            jsr x16src.i16_abs
+        .if BANK_X16_USE_INT16
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub i16_shl() {
+        %asm {{
+        .if BANK_X16_USE_INT16
+            lda $00
+            pha
+            lda #BANK_X16_USE_INT16
+            sta $00
+        .endif
+            jsr x16src.i16_shl
+        .if BANK_X16_USE_INT16
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub i16_shr() {
+        %asm {{
+        .if BANK_X16_USE_INT16
+            lda $00
+            pha
+            lda #BANK_X16_USE_INT16
+            sta $00
+        .endif
+            jsr x16src.i16_shr
+        .if BANK_X16_USE_INT16
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub i16_asr() {
+        %asm {{
+        .if BANK_X16_USE_INT16
+            lda $00
+            pha
+            lda #BANK_X16_USE_INT16
+            sta $00
+        .endif
+            jsr x16src.i16_asr
+        .if BANK_X16_USE_INT16
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub i16_cmpu() {
+        %asm {{
+        .if BANK_X16_USE_INT16
+            lda $00
+            pha
+            lda #BANK_X16_USE_INT16
+            sta $00
+        .endif
+            jsr x16src.i16_cmpu
+        .if BANK_X16_USE_INT16
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub i16_cmps() -> ubyte {
+        %asm {{
+        .if BANK_X16_USE_INT16
+            lda $00
+            pha
+            lda #BANK_X16_USE_INT16
+            sta $00
+        .endif
+            jsr x16src.i16_cmps
+            sta p8v_ret8
+        .if BANK_X16_USE_INT16
+            pla
+            sta $00
+        .endif
+        }}
+        return ret8
+    }
+
+    sub i16_mul() {
+        %asm {{
+        .if BANK_X16_USE_INT16
+            lda $00
+            pha
+            lda #BANK_X16_USE_INT16
+            sta $00
+        .endif
+            jsr x16src.i16_mul
+        .if BANK_X16_USE_INT16
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub i16_divmod() {
+        %asm {{
+        .if BANK_X16_USE_INT16
+            lda $00
+            pha
+            lda #BANK_X16_USE_INT16
+            sta $00
+        .endif
+            jsr x16src.i16_divmod
+        .if BANK_X16_USE_INT16
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub i16_divmod_s() {
+        %asm {{
+        .if BANK_X16_USE_INT16
+            lda $00
+            pha
+            lda #BANK_X16_USE_INT16
+            sta $00
+        .endif
+            jsr x16src.i16_divmod_s
+        .if BANK_X16_USE_INT16
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub i16_sqrt() {
+        %asm {{
+        .if BANK_X16_USE_INT16
+            lda $00
+            pha
+            lda #BANK_X16_USE_INT16
+            sta $00
+        .endif
+            jsr x16src.i16_sqrt
+        .if BANK_X16_USE_INT16
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub i16_to_dec() {
+        %asm {{
+        .if BANK_X16_USE_INT16
+            lda $00
+            pha
+            lda #BANK_X16_USE_INT16
+            sta $00
+        .endif
+            jsr x16src.i16_to_dec
+        .if BANK_X16_USE_INT16
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub i16_to_dec_s() -> uword {
+        %asm {{
+        .if BANK_X16_USE_INT16
+            lda $00
+            pha
+            lda #BANK_X16_USE_INT16
+            sta $00
+        .endif
+            jsr x16src.i16_to_dec_s
+            sta p8v_ret16
+            stx p8v_ret16+1
+        .if BANK_X16_USE_INT16
+            pla
+            sta $00
+        .endif
+        }}
+        return ret16
+    }
+
+    sub i32_to_s16() -> uword {
+        %asm {{
+        .if BANK_X16_USE_INT32
+            lda $00
+            pha
+            lda #BANK_X16_USE_INT32
+            sta $00
+        .endif
+            jsr x16src.i32_to_s16
+            sta p8v_ret16
+            stx p8v_ret16+1
+        .if BANK_X16_USE_INT32
+            pla
+            sta $00
+        .endif
+        }}
+        return ret16
+    }
+
+    sub i32_add() {
+        %asm {{
+        .if BANK_X16_USE_INT32
+            lda $00
+            pha
+            lda #BANK_X16_USE_INT32
+            sta $00
+        .endif
+            jsr x16src.i32_add
+        .if BANK_X16_USE_INT32
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub i32_sub() {
+        %asm {{
+        .if BANK_X16_USE_INT32
+            lda $00
+            pha
+            lda #BANK_X16_USE_INT32
+            sta $00
+        .endif
+            jsr x16src.i32_sub
+        .if BANK_X16_USE_INT32
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub i32_neg() {
+        %asm {{
+        .if BANK_X16_USE_INT32
+            lda $00
+            pha
+            lda #BANK_X16_USE_INT32
+            sta $00
+        .endif
+            jsr x16src.i32_neg
+        .if BANK_X16_USE_INT32
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub i32_abs() {
+        %asm {{
+        .if BANK_X16_USE_INT32
+            lda $00
+            pha
+            lda #BANK_X16_USE_INT32
+            sta $00
+        .endif
+            jsr x16src.i32_abs
+        .if BANK_X16_USE_INT32
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub i32_shl() {
+        %asm {{
+        .if BANK_X16_USE_INT32
+            lda $00
+            pha
+            lda #BANK_X16_USE_INT32
+            sta $00
+        .endif
+            jsr x16src.i32_shl
+        .if BANK_X16_USE_INT32
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub i32_shr() {
+        %asm {{
+        .if BANK_X16_USE_INT32
+            lda $00
+            pha
+            lda #BANK_X16_USE_INT32
+            sta $00
+        .endif
+            jsr x16src.i32_shr
+        .if BANK_X16_USE_INT32
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub i32_asr() {
+        %asm {{
+        .if BANK_X16_USE_INT32
+            lda $00
+            pha
+            lda #BANK_X16_USE_INT32
+            sta $00
+        .endif
+            jsr x16src.i32_asr
+        .if BANK_X16_USE_INT32
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub i32_cmpu() {
+        %asm {{
+        .if BANK_X16_USE_INT32
+            lda $00
+            pha
+            lda #BANK_X16_USE_INT32
+            sta $00
+        .endif
+            jsr x16src.i32_cmpu
+        .if BANK_X16_USE_INT32
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub i32_cmps() -> ubyte {
+        %asm {{
+        .if BANK_X16_USE_INT32
+            lda $00
+            pha
+            lda #BANK_X16_USE_INT32
+            sta $00
+        .endif
+            jsr x16src.i32_cmps
+            sta p8v_ret8
+        .if BANK_X16_USE_INT32
+            pla
+            sta $00
+        .endif
+        }}
+        return ret8
+    }
+
+    sub i32_mul() {
+        %asm {{
+        .if BANK_X16_USE_INT32
+            lda $00
+            pha
+            lda #BANK_X16_USE_INT32
+            sta $00
+        .endif
+            jsr x16src.i32_mul
+        .if BANK_X16_USE_INT32
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub i32_divmod() {
+        %asm {{
+        .if BANK_X16_USE_INT32
+            lda $00
+            pha
+            lda #BANK_X16_USE_INT32
+            sta $00
+        .endif
+            jsr x16src.i32_divmod
+        .if BANK_X16_USE_INT32
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub i32_to_dec() -> uword {
+        %asm {{
+        .if BANK_X16_USE_INT32
+            lda $00
+            pha
+            lda #BANK_X16_USE_INT32
+            sta $00
+        .endif
+            jsr x16src.i32_to_dec
+            sta p8v_ret16
+            stx p8v_ret16+1
+        .if BANK_X16_USE_INT32
+            pla
+            sta $00
+        .endif
+        }}
+        return ret16
+    }
+
+    sub bcd_add8() -> bool {
+        %asm {{
+        .if BANK_X16_USE_BCD
+            lda $00
+            pha
+            lda #BANK_X16_USE_BCD
+            sta $00
+        .endif
+            jsr x16src.bcd_add8
+            lda #0
+            rol  a
+            sta p8v_retbit
+        .if BANK_X16_USE_BCD
+            pla
+            sta $00
+        .endif
+        }}
+        return retbit
+    }
+
+    sub bcd_add16() -> bool {
+        %asm {{
+        .if BANK_X16_USE_BCD
+            lda $00
+            pha
+            lda #BANK_X16_USE_BCD
+            sta $00
+        .endif
+            jsr x16src.bcd_add16
+            lda #0
+            rol  a
+            sta p8v_retbit
+        .if BANK_X16_USE_BCD
+            pla
+            sta $00
+        .endif
+        }}
+        return retbit
+    }
+
+    sub bcd_add32() -> bool {
+        %asm {{
+        .if BANK_X16_USE_BCD
+            lda $00
+            pha
+            lda #BANK_X16_USE_BCD
+            sta $00
+        .endif
+            jsr x16src.bcd_add32
+            lda #0
+            rol  a
+            sta p8v_retbit
+        .if BANK_X16_USE_BCD
+            pla
+            sta $00
+        .endif
+        }}
+        return retbit
+    }
+
+    sub bcd_sub8() -> bool {
+        %asm {{
+        .if BANK_X16_USE_BCD
+            lda $00
+            pha
+            lda #BANK_X16_USE_BCD
+            sta $00
+        .endif
+            jsr x16src.bcd_sub8
+            lda #0
+            rol  a
+            sta p8v_retbit
+        .if BANK_X16_USE_BCD
+            pla
+            sta $00
+        .endif
+        }}
+        return retbit
+    }
+
+    sub bcd_sub16() -> bool {
+        %asm {{
+        .if BANK_X16_USE_BCD
+            lda $00
+            pha
+            lda #BANK_X16_USE_BCD
+            sta $00
+        .endif
+            jsr x16src.bcd_sub16
+            lda #0
+            rol  a
+            sta p8v_retbit
+        .if BANK_X16_USE_BCD
+            pla
+            sta $00
+        .endif
+        }}
+        return retbit
+    }
+
+    sub bcd_sub32() -> bool {
+        %asm {{
+        .if BANK_X16_USE_BCD
+            lda $00
+            pha
+            lda #BANK_X16_USE_BCD
+            sta $00
+        .endif
+            jsr x16src.bcd_sub32
+            lda #0
+            rol  a
+            sta p8v_retbit
+        .if BANK_X16_USE_BCD
+            pla
+            sta $00
+        .endif
+        }}
+        return retbit
+    }
+
+    sub stack_pop() -> ubyte {
+        %asm {{
+        .if BANK_X16_USE_STACK
+            lda $00
+            pha
+            lda #BANK_X16_USE_STACK
+            sta $00
+        .endif
+            jsr x16src.stack_pop
+            sta p8v_ret8
+        .if BANK_X16_USE_STACK
+            pla
+            sta $00
+        .endif
+        }}
+        return ret8
+    }
+
+    sub stack_popw() -> uword {
+        %asm {{
+        .if BANK_X16_USE_STACK
+            lda $00
+            pha
+            lda #BANK_X16_USE_STACK
+            sta $00
+        .endif
+            jsr x16src.stack_popw
+            sta p8v_ret16
+            stx p8v_ret16+1
+        .if BANK_X16_USE_STACK
+            pla
+            sta $00
+        .endif
+        }}
+        return ret16
+    }
+
+    sub stack_size() -> uword {
+        %asm {{
+        .if BANK_X16_USE_STACK
+            lda $00
+            pha
+            lda #BANK_X16_USE_STACK
+            sta $00
+        .endif
+            jsr x16src.stack_size
+            sta p8v_ret16
+            stx p8v_ret16+1
+        .if BANK_X16_USE_STACK
+            pla
+            sta $00
+        .endif
+        }}
+        return ret16
+    }
+
+    sub stack_free() -> uword {
+        %asm {{
+        .if BANK_X16_USE_STACK
+            lda $00
+            pha
+            lda #BANK_X16_USE_STACK
+            sta $00
+        .endif
+            jsr x16src.stack_free
+            sta p8v_ret16
+            stx p8v_ret16+1
+        .if BANK_X16_USE_STACK
+            pla
+            sta $00
+        .endif
+        }}
+        return ret16
+    }
+
+    sub stack_isempty() -> bool {
+        %asm {{
+        .if BANK_X16_USE_STACK
+            lda $00
+            pha
+            lda #BANK_X16_USE_STACK
+            sta $00
+        .endif
+            jsr x16src.stack_isempty
+            lda #0
+            rol  a
+            sta p8v_retbit
+        .if BANK_X16_USE_STACK
+            pla
+            sta $00
+        .endif
+        }}
+        return retbit
+    }
+
+    sub stack_isfull() -> bool {
+        %asm {{
+        .if BANK_X16_USE_STACK
+            lda $00
+            pha
+            lda #BANK_X16_USE_STACK
+            sta $00
+        .endif
+            jsr x16src.stack_isfull
+            lda #0
+            rol  a
+            sta p8v_retbit
+        .if BANK_X16_USE_STACK
+            pla
+            sta $00
+        .endif
+        }}
+        return retbit
+    }
+
+    sub ring_get() -> ubyte {
+        %asm {{
+        .if BANK_X16_USE_RINGBUFFER
+            lda $00
+            pha
+            lda #BANK_X16_USE_RINGBUFFER
+            sta $00
+        .endif
+            jsr x16src.ring_get
+            sta p8v_ret8
+        .if BANK_X16_USE_RINGBUFFER
+            pla
+            sta $00
+        .endif
+        }}
+        return ret8
+    }
+
+    sub ring_getw() -> uword {
+        %asm {{
+        .if BANK_X16_USE_RINGBUFFER
+            lda $00
+            pha
+            lda #BANK_X16_USE_RINGBUFFER
+            sta $00
+        .endif
+            jsr x16src.ring_getw
+            sta p8v_ret16
+            stx p8v_ret16+1
+        .if BANK_X16_USE_RINGBUFFER
+            pla
+            sta $00
+        .endif
+        }}
+        return ret16
+    }
+
+    sub ring_size() -> uword {
+        %asm {{
+        .if BANK_X16_USE_RINGBUFFER
+            lda $00
+            pha
+            lda #BANK_X16_USE_RINGBUFFER
+            sta $00
+        .endif
+            jsr x16src.ring_size
+            sta p8v_ret16
+            stx p8v_ret16+1
+        .if BANK_X16_USE_RINGBUFFER
+            pla
+            sta $00
+        .endif
+        }}
+        return ret16
+    }
+
+    sub ring_free() -> uword {
+        %asm {{
+        .if BANK_X16_USE_RINGBUFFER
+            lda $00
+            pha
+            lda #BANK_X16_USE_RINGBUFFER
+            sta $00
+        .endif
+            jsr x16src.ring_free
+            sta p8v_ret16
+            stx p8v_ret16+1
+        .if BANK_X16_USE_RINGBUFFER
+            pla
+            sta $00
+        .endif
+        }}
+        return ret16
+    }
+
+    sub ring_isempty() -> bool {
+        %asm {{
+        .if BANK_X16_USE_RINGBUFFER
+            lda $00
+            pha
+            lda #BANK_X16_USE_RINGBUFFER
+            sta $00
+        .endif
+            jsr x16src.ring_isempty
+            lda #0
+            rol  a
+            sta p8v_retbit
+        .if BANK_X16_USE_RINGBUFFER
+            pla
+            sta $00
+        .endif
+        }}
+        return retbit
+    }
+
+    sub ring_isfull() -> bool {
+        %asm {{
+        .if BANK_X16_USE_RINGBUFFER
+            lda $00
+            pha
+            lda #BANK_X16_USE_RINGBUFFER
+            sta $00
+        .endif
+            jsr x16src.ring_isfull
+            lda #0
+            rol  a
+            sta p8v_retbit
+        .if BANK_X16_USE_RINGBUFFER
+            pla
+            sta $00
+        .endif
+        }}
+        return retbit
+    }
+
+    sub pcm_full() -> bool {
+        %asm {{
+        .if BANK_X16_USE_PCM
+            lda $00
+            pha
+            lda #BANK_X16_USE_PCM
+            sta $00
+        .endif
+            jsr x16src.pcm_full
+            lda #0
+            rol  a
+            sta p8v_retbit
+        .if BANK_X16_USE_PCM
+            pla
+            sta $00
+        .endif
+        }}
+        return retbit
+    }
+
+    sub pcm_empty() -> bool {
+        %asm {{
+        .if BANK_X16_USE_PCM
+            lda $00
+            pha
+            lda #BANK_X16_USE_PCM
+            sta $00
+        .endif
+            jsr x16src.pcm_empty
+            lda #0
+            rol  a
+            sta p8v_retbit
+        .if BANK_X16_USE_PCM
+            pla
+            sta $00
+        .endif
+        }}
+        return retbit
+    }
+
+    sub pcm_stream_active() -> ubyte {
+        %asm {{
+        .if BANK_X16_USE_PCM_STREAM
+            lda $00
+            pha
+            lda #BANK_X16_USE_PCM_STREAM
+            sta $00
+        .endif
+            jsr x16src.pcm_stream_active
+            sta p8v_ret8
+        .if BANK_X16_USE_PCM_STREAM
+            pla
+            sta $00
+        .endif
+        }}
+        return ret8
+    }
+
+    sub ym_busy() -> bool {
+        %asm {{
+        .if BANK_X16_USE_YM
+            lda $00
+            pha
+            lda #BANK_X16_USE_YM
+            sta $00
+        .endif
+            jsr x16src.ym_busy
+            lda #0
+            rol  a
+            sta p8v_retbit
+        .if BANK_X16_USE_YM
+            pla
+            sta $00
+        .endif
+        }}
+        return retbit
+    }
+
+    sub bank_get() {
+        %asm {{
+        .if BANK_X16_USE_BANK
+            lda $00
+            pha
+            lda #BANK_X16_USE_BANK
+            sta $00
+        .endif
+            jsr x16src.bank_get
+        .if BANK_X16_USE_BANK
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub irq_line_remove() {
+        %asm {{
+        .if BANK_X16_USE_IRQ
+            lda $00
+            pha
+            lda #BANK_X16_USE_IRQ
+            sta $00
+        .endif
+            jsr x16src.irq_line_remove
+        .if BANK_X16_USE_IRQ
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub irq_save_regs() {
+        %asm {{
+        .if BANK_X16_USE_IRQ
+            lda $00
+            pha
+            lda #BANK_X16_USE_IRQ
+            sta $00
+        .endif
+            jsr x16src.irq_save_regs
+        .if BANK_X16_USE_IRQ
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub irq_restore_regs() {
+        %asm {{
+        .if BANK_X16_USE_IRQ
+            lda $00
+            pha
+            lda #BANK_X16_USE_IRQ
+            sta $00
+        .endif
+            jsr x16src.irq_restore_regs
+        .if BANK_X16_USE_IRQ
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub irq_frames() -> ubyte {
+        %asm {{
+        .if BANK_X16_USE_IRQ
+            lda $00
+            pha
+            lda #BANK_X16_USE_IRQ
+            sta $00
+        .endif
+            jsr x16src.irq_frames
+            sta p8v_ret8
+        .if BANK_X16_USE_IRQ
+            pla
+            sta $00
+        .endif
+        }}
+        return ret8
+    }
+
+    sub sprite_collisions() -> ubyte {
+        %asm {{
+        .if BANK_X16_USE_IRQ_SPRCOL_API
+            lda $00
+            pha
+            lda #BANK_X16_USE_IRQ_SPRCOL_API
+            sta $00
+        .endif
+            jsr x16src.sprite_collisions
+            sta p8v_ret8
+        .if BANK_X16_USE_IRQ_SPRCOL_API
+            pla
+            sta $00
+        .endif
+        }}
+        return ret8
+    }
+
+    sub clip_line() -> bool {
+        %asm {{
+        .if BANK_X16_USE_CLIP
+            lda $00
+            pha
+            lda #BANK_X16_USE_CLIP
+            sta $00
+        .endif
+            jsr x16src.clip_line
+            lda #0
+            rol  a
+            sta p8v_retbit
+        .if BANK_X16_USE_CLIP
+            pla
+            sta $00
+        .endif
+        }}
+        return retbit
+    }
+
+    sub fx_triangle() {
+        %asm {{
+        .if BANK_X16_USE_VERAFX_TRI
+            lda $00
+            pha
+            lda #BANK_X16_USE_VERAFX_TRI
+            sta $00
+        .endif
+            jsr x16src.fx_triangle
+        .if BANK_X16_USE_VERAFX_TRI
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub rnd16() -> uword {
+        %asm {{
+        .if BANK_X16_USE_MATH
+            lda $00
+            pha
+            lda #BANK_X16_USE_MATH
+            sta $00
+        .endif
+            jsr x16src.rnd16
+            sta p8v_ret16
+            stx p8v_ret16+1
+        .if BANK_X16_USE_MATH
+            pla
+            sta $00
+        .endif
+        }}
+        return ret16
+    }
+
+    sub screen_get_mode() -> ubyte {
+        %asm {{
+        .if BANK_X16_USE_SCREEN_EXTRA
+            lda $00
+            pha
+            lda #BANK_X16_USE_SCREEN_EXTRA
+            sta $00
+        .endif
+            jsr x16src.screen_get_mode
+            sta p8v_ret8
+        .if BANK_X16_USE_SCREEN_EXTRA
+            pla
+            sta $00
+        .endif
+        }}
+        return ret8
+    }
+
+    sub screen_get_cursor() {
+        %asm {{
+        .if BANK_X16_USE_SCREEN_EXTRA
+            lda $00
+            pha
+            lda #BANK_X16_USE_SCREEN_EXTRA
+            sta $00
+        .endif
+            jsr x16src.screen_get_cursor
+        .if BANK_X16_USE_SCREEN_EXTRA
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub vera_has_fx() {
+        %asm {{
+        .if BANK_X16_USE_VERA_FXPROBE
+            lda $00
+            pha
+            lda #BANK_X16_USE_VERA_FXPROBE
+            sta $00
+        .endif
+            jsr x16src.vera_has_fx
+        .if BANK_X16_USE_VERA_FXPROBE
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub fio_open() {
+        %asm {{
+        .if BANK_X16_USE_FILEIO
+            lda $00
+            pha
+            lda #BANK_X16_USE_FILEIO
+            sta $00
+        .endif
+            jsr x16src.fio_open
+        .if BANK_X16_USE_FILEIO
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub str_isdigit(ubyte ch) -> bool {
+        %asm {{
+        .if BANK_X16_USE_STRING_CTYPE
+            lda $00
+            pha
+            lda #BANK_X16_USE_STRING_CTYPE
+            sta $00
+        .endif
+            lda p8v_ch
+            jsr x16src.str_isdigit
+            lda #0
+            rol  a
+            sta p8v_retbit
+        .if BANK_X16_USE_STRING_CTYPE
+            pla
+            sta $00
+        .endif
+        }}
+        return retbit
+    }
+
+    sub str_isxdigit(ubyte ch) -> bool {
+        %asm {{
+        .if BANK_X16_USE_STRING_CTYPE
+            lda $00
+            pha
+            lda #BANK_X16_USE_STRING_CTYPE
+            sta $00
+        .endif
+            lda p8v_ch
+            jsr x16src.str_isxdigit
+            lda #0
+            rol  a
+            sta p8v_retbit
+        .if BANK_X16_USE_STRING_CTYPE
+            pla
+            sta $00
+        .endif
+        }}
+        return retbit
+    }
+
+    sub str_islower(ubyte ch) -> bool {
+        %asm {{
+        .if BANK_X16_USE_STRING_CTYPE
+            lda $00
+            pha
+            lda #BANK_X16_USE_STRING_CTYPE
+            sta $00
+        .endif
+            lda p8v_ch
+            jsr x16src.str_islower
+            lda #0
+            rol  a
+            sta p8v_retbit
+        .if BANK_X16_USE_STRING_CTYPE
+            pla
+            sta $00
+        .endif
+        }}
+        return retbit
+    }
+
+    sub str_isupper(ubyte ch) {
+        %asm {{
+        .if BANK_X16_USE_STRING_CTYPE
+            lda $00
+            pha
+            lda #BANK_X16_USE_STRING_CTYPE
+            sta $00
+        .endif
+            lda p8v_ch
+            jsr x16src.str_isupper
+        .if BANK_X16_USE_STRING_CTYPE
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub str_isupper_iso(ubyte ch) {
+        %asm {{
+        .if BANK_X16_USE_STRING_CTYPE
+            lda $00
+            pha
+            lda #BANK_X16_USE_STRING_CTYPE
+            sta $00
+        .endif
+            lda p8v_ch
+            jsr x16src.str_isupper_iso
+        .if BANK_X16_USE_STRING_CTYPE
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub str_isletter(ubyte ch) {
+        %asm {{
+        .if BANK_X16_USE_STRING_CTYPE
+            lda $00
+            pha
+            lda #BANK_X16_USE_STRING_CTYPE
+            sta $00
+        .endif
+            lda p8v_ch
+            jsr x16src.str_isletter
+        .if BANK_X16_USE_STRING_CTYPE
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub str_isletter_iso(ubyte ch) {
+        %asm {{
+        .if BANK_X16_USE_STRING_CTYPE
+            lda $00
+            pha
+            lda #BANK_X16_USE_STRING_CTYPE
+            sta $00
+        .endif
+            lda p8v_ch
+            jsr x16src.str_isletter_iso
+        .if BANK_X16_USE_STRING_CTYPE
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub str_isspace(ubyte ch) -> bool {
+        %asm {{
+        .if BANK_X16_USE_STRING_CTYPE
+            lda $00
+            pha
+            lda #BANK_X16_USE_STRING_CTYPE
+            sta $00
+        .endif
+            lda p8v_ch
+            jsr x16src.str_isspace
+            lda #0
+            rol  a
+            sta p8v_retbit
+        .if BANK_X16_USE_STRING_CTYPE
+            pla
+            sta $00
+        .endif
+        }}
+        return retbit
+    }
+
+    sub str_isprint(ubyte ch) {
+        %asm {{
+        .if BANK_X16_USE_STRING_CTYPE
+            lda $00
+            pha
+            lda #BANK_X16_USE_STRING_CTYPE
+            sta $00
+        .endif
+            lda p8v_ch
+            jsr x16src.str_isprint
+        .if BANK_X16_USE_STRING_CTYPE
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub str_isprint_iso(ubyte ch) {
+        %asm {{
+        .if BANK_X16_USE_STRING_CTYPE
+            lda $00
+            pha
+            lda #BANK_X16_USE_STRING_CTYPE
+            sta $00
+        .endif
+            lda p8v_ch
+            jsr x16src.str_isprint_iso
+        .if BANK_X16_USE_STRING_CTYPE
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub str_lowerchar(ubyte ch) {
+        %asm {{
+        .if BANK_X16_USE_STRING_CASE
+            lda $00
+            pha
+            lda #BANK_X16_USE_STRING_CASE
+            sta $00
+        .endif
+            lda p8v_ch
+            jsr x16src.str_lowerchar
+        .if BANK_X16_USE_STRING_CASE
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub str_upperchar(ubyte ch) {
+        %asm {{
+        .if BANK_X16_USE_STRING_CASE
+            lda $00
+            pha
+            lda #BANK_X16_USE_STRING_CASE
+            sta $00
+        .endif
+            lda p8v_ch
+            jsr x16src.str_upperchar
+        .if BANK_X16_USE_STRING_CASE
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub stack_init(ubyte bank) {
+        %asm {{
+        .if BANK_X16_USE_STACK
+            lda $00
+            pha
+            lda #BANK_X16_USE_STACK
+            sta $00
+        .endif
+            lda p8v_bank
+            jsr x16src.stack_init
+        .if BANK_X16_USE_STACK
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub ring_init(ubyte bank) {
+        %asm {{
+        .if BANK_X16_USE_RINGBUFFER
+            lda $00
+            pha
+            lda #BANK_X16_USE_RINGBUFFER
+            sta $00
+        .endif
+            lda p8v_bank
+            jsr x16src.ring_init
+        .if BANK_X16_USE_RINGBUFFER
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub stack_push(ubyte byte_) {
+        %asm {{
+        .if BANK_X16_USE_STACK
+            lda $00
+            pha
+            lda #BANK_X16_USE_STACK
+            sta $00
+        .endif
+            lda p8v_byte_
+            jsr x16src.stack_push
+        .if BANK_X16_USE_STACK
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub ring_put(ubyte byte_) {
+        %asm {{
+        .if BANK_X16_USE_RINGBUFFER
+            lda $00
+            pha
+            lda #BANK_X16_USE_RINGBUFFER
+            sta $00
+        .endif
+            lda p8v_byte_
+            jsr x16src.ring_put
+        .if BANK_X16_USE_RINGBUFFER
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub ym_get_pan(ubyte channel) -> ubyte {
+        %asm {{
+        .if BANK_X16_USE_YM
+            lda $00
+            pha
+            lda #BANK_X16_USE_YM
+            sta $00
+        .endif
+            lda p8v_channel
+            jsr x16src.ym_get_pan
+            stx p8v_ret8
+        .if BANK_X16_USE_YM
+            pla
+            sta $00
+        .endif
+        }}
+        return ret8
+    }
+
+    sub ym_get_vol(ubyte channel) -> ubyte {
+        %asm {{
+        .if BANK_X16_USE_YM
+            lda $00
+            pha
+            lda #BANK_X16_USE_YM
+            sta $00
+        .endif
+            lda p8v_channel
+            jsr x16src.ym_get_vol
+            stx p8v_ret8
+        .if BANK_X16_USE_YM
+            pla
+            sta $00
+        .endif
+        }}
+        return ret8
+    }
+
+    ; push one word (low byte first, then high)
+    sub stack_pushw(uword value) {
+        %asm {{
+        .if BANK_X16_USE_STACK
+            lda $00
+            pha
+            lda #BANK_X16_USE_STACK
+            sta $00
+        .endif
+            lda p8v_value
+            ldx p8v_value+1
+            jsr x16src.stack_pushw
+        .if BANK_X16_USE_STACK
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    ; enqueue one word (low byte first)
+    sub ring_putw(uword value) {
+        %asm {{
+        .if BANK_X16_USE_RINGBUFFER
+            lda $00
+            pha
+            lda #BANK_X16_USE_RINGBUFFER
+            sta $00
+        .endif
+            lda p8v_value
+            ldx p8v_value+1
+            jsr x16src.ring_putw
+        .if BANK_X16_USE_RINGBUFFER
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    ; add bcd_b to a 4-byte BCD value in place
+    sub bcd_addto(uword value) {
+        %asm {{
+        .if BANK_X16_USE_BCD
+            lda $00
+            pha
+            lda #BANK_X16_USE_BCD
+            sta $00
+        .endif
+            lda p8v_value
+            ldx p8v_value+1
+            jsr x16src.bcd_addto
+        .if BANK_X16_USE_BCD
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    ; subtract bcd_b from a 4-byte BCD value in place
+    sub bcd_subfrom(uword value) -> bool {
+        %asm {{
+        .if BANK_X16_USE_BCD
+            lda $00
+            pha
+            lda #BANK_X16_USE_BCD
+            sta $00
+        .endif
+            lda p8v_value
+            ldx p8v_value+1
+            jsr x16src.bcd_subfrom
+            lda #0
+            rol  a
+            sta p8v_retbit
+        .if BANK_X16_USE_BCD
+            pla
+            sta $00
+        .endif
+        }}
+        return retbit
+    }
+
+    ; FAC = mem ^ FAC (the ROM's operand order)
+    sub f_rpow(uword addr) {
+        %asm {{
+        .if BANK_X16_USE_FLOAT
+            lda $00
+            pha
+            lda #BANK_X16_USE_FLOAT
+            sta $00
+        .endif
+            lda p8v_addr
+            ldy p8v_addr+1
+            jsr x16src.f_rpow
+        .if BANK_X16_USE_FLOAT
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    ; d_ac = the signed 32-bit little-endian value at addr
+    sub d_from_s32(uword addr) {
+        %asm {{
+        .if BANK_X16_USE_DOUBLE
+            lda $00
+            pha
+            lda #BANK_X16_USE_DOUBLE
+            sta $00
+        .endif
+            lda p8v_addr
+            sta $22
+            lda p8v_addr+1
+            sta $23
+            jsr x16src.d_from_s32
+        .if BANK_X16_USE_DOUBLE
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    ; tile data base for a layer (base>>11<<2 | tile size bits)
+    sub layer_set_tilebase(ubyte layer, ubyte base) {
+        %asm {{
+        .if BANK_X16_USE_TILE
+            lda $00
+            pha
+            lda #BANK_X16_USE_TILE
+            sta $00
+        .endif
+            ldx p8v_layer
+            lda p8v_base
+            jsr x16src.layer_set_tilebase
+        .if BANK_X16_USE_TILE
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    ; set (.set != 0) or clear (.set = 0) the masked bits at addr
+    sub bit_put(uword addr, ubyte mask, ubyte set) {
+        %asm {{
+        .if BANK_X16_USE_BITS
+            lda $00
+            pha
+            lda #BANK_X16_USE_BITS
+            sta $00
+        .endif
+            lda p8v_addr
+            sta X16_PTR0
+            lda p8v_addr+1
+            sta X16_PTR0+1
+            ldx p8v_set
+            lda p8v_mask
+            jsr x16src.bit_put
+        .if BANK_X16_USE_BITS
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    ; load an instrument from a patch in RAM (the ROM-index form is xm_ym_patch_rom)
+    sub ym_patch_ram(ubyte channel, uword addr) -> bool {
+        %asm {{
+        .if BANK_X16_USE_YM
+            lda $00
+            pha
+            lda #BANK_X16_USE_YM
+            sta $00
+        .endif
+            clc
+            ldx p8v_addr
+            ldy p8v_addr+1
+            lda p8v_channel
+            jsr x16src.ym_patch
+            lda #0
+            rol  a
+            sta p8v_retbit
+        .if BANK_X16_USE_YM
+            pla
+            sta $00
+        .endif
+        }}
+        return retbit
+    }
+
+    ; make a directory
+    sub dos_mkdir(uword name, ubyte len_) {
+        %asm {{
+        .if BANK_X16_USE_DOS
+            lda $00
+            pha
+            lda #BANK_X16_USE_DOS
+            sta $00
+        .endif
+            lda p8v_name
+            ldx p8v_name+1
+            ldy p8v_len_
+            jsr x16src.dos_mkdir
+        .if BANK_X16_USE_DOS
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    ; remove a directory
+    sub dos_rmdir(uword name, ubyte len_) {
+        %asm {{
+        .if BANK_X16_USE_DOS
+            lda $00
+            pha
+            lda #BANK_X16_USE_DOS
+            sta $00
+        .endif
+            lda p8v_name
+            ldx p8v_name+1
+            ldy p8v_len_
+            jsr x16src.dos_rmdir
+        .if BANK_X16_USE_DOS
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    ; change directory ("//" is the root)
+    sub dos_chdir(uword name, ubyte len_) {
+        %asm {{
+        .if BANK_X16_USE_DOS
+            lda $00
+            pha
+            lda #BANK_X16_USE_DOS
+            sta $00
+        .endif
+            lda p8v_name
+            ldx p8v_name+1
+            ldy p8v_len_
+            jsr x16src.dos_chdir
+        .if BANK_X16_USE_DOS
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    ; rename oldname to newname
+    sub dos_rename(uword newname, ubyte newlen, uword oldname, ubyte oldlen) {
+        %asm {{
+        .if BANK_X16_USE_DOS
+            lda $00
+            pha
+            lda #BANK_X16_USE_DOS
+            sta $00
+        .endif
+            lda p8v_oldname
+            sta $22
+            lda p8v_oldname+1
+            sta $23
+            lda p8v_oldlen
+            sta $24
+            lda p8v_newname
+            ldx p8v_newname+1
+            ldy p8v_newlen
+            jsr x16src.dos_rename
+        .if BANK_X16_USE_DOS
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    ; copy banked RAM to low RAM, advancing across bank boundaries
+    sub bank_to_mem(ubyte bank, uword offset, uword dst, uword count) {
+        %asm {{
+        .if BANK_X16_USE_BANK
+            lda $00
+            pha
+            lda #BANK_X16_USE_BANK
+            sta $00
+        .endif
+            lda p8v_offset
+            sta $23
+            lda p8v_offset+1
+            sta $24
+            lda p8v_dst
+            sta $25
+            lda p8v_dst+1
+            sta $26
+            lda p8v_count
+            sta $27
+            lda p8v_count+1
+            sta $28
+            lda p8v_bank
+            sta $22
+            jsr x16src.bank_to_mem
+        .if BANK_X16_USE_BANK
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    ; copy banked RAM to banked RAM
+    sub bank_copy_far(ubyte srcbank, uword srcoff, ubyte dstbank, uword dstoff, uword count) {
+        %asm {{
+        .if BANK_X16_USE_BANK
+            lda $00
+            pha
+            lda #BANK_X16_USE_BANK
+            sta $00
+        .endif
+            lda p8v_srcoff
+            sta $23
+            lda p8v_srcoff+1
+            sta $24
+            lda p8v_dstoff
+            sta $26
+            lda p8v_dstoff+1
+            sta $27
+            lda p8v_count
+            sta $28
+            lda p8v_count+1
+            sta $29
+            lda p8v_dstbank
+            sta $25
+            lda p8v_srcbank
+            sta $22
+            jsr x16src.bank_copy_far
+        .if BANK_X16_USE_BANK
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    ; save a block of memory as a PRG
+    sub fs_save(uword name, ubyte len_, ubyte device, uword start_, uword end) {
+        %asm {{
+        .if BANK_X16_USE_LOAD
+            lda $00
+            pha
+            lda #BANK_X16_USE_LOAD
+            sta $00
+        .endif
+            lda p8v_name
+            sta $22
+            lda p8v_name+1
+            sta $23
+            lda p8v_len_
+            sta $24
+            lda p8v_device
+            sta $25
+            lda p8v_start_
+            sta $27
+            lda p8v_start_+1
+            sta $28
+            lda p8v_end
+            sta X16_T6
+            lda p8v_end+1
+            sta X16_T7
+            jsr x16src.fs_save
+        .if BANK_X16_USE_LOAD
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    ; write a BMX file from VRAM (bmx_width/height/bpp/... describe the image)
+    sub bmx_save(uword name, ubyte len_, ubyte device, ubyte vbank, uword vaddr) {
+        %asm {{
+        .if BANK_X16_USE_BMX
+            lda $00
+            pha
+            lda #BANK_X16_USE_BMX
+            sta $00
+        .endif
+            lda p8v_name
+            sta $22
+            lda p8v_name+1
+            sta $23
+            lda p8v_len_
+            sta $24
+            lda p8v_device
+            sta $25
+            lda p8v_vbank
+            sta $26
+            lda p8v_vaddr
+            sta $27
+            lda p8v_vaddr+1
+            sta $28
+            jsr x16src.bmx_save
+        .if BANK_X16_USE_BMX
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    ; play a sample living in banked RAM (count is 24-bit: low word, then high byte)
+    sub pcm_stream_start_bank(uword offset, uword count, ubyte counthi, ubyte bank, ubyte rate) {
+        %asm {{
+        .if BANK_X16_USE_PCM_STREAM
+            lda $00
+            pha
+            lda #BANK_X16_USE_PCM_STREAM
+            sta $00
+        .endif
+            lda p8v_offset
+            sta $22
+            lda p8v_offset+1
+            sta $23
+            lda p8v_count
+            sta $24
+            lda p8v_count+1
+            sta $25
+            lda p8v_counthi
+            sta $26
+            lda p8v_bank
+            sta $27
+            lda p8v_rate
+            jsr x16src.pcm_stream_start_bank
+        .if BANK_X16_USE_PCM_STREAM
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    ; VRAM to VRAM through the 32-bit cache; the destination must be 4-byte aligned
+    sub fx_copy(uword src, ubyte srchi, uword dst, ubyte dsthi, uword count) {
+        %asm {{
+        .if BANK_X16_USE_VERAFX_COPY
+            lda $00
+            pha
+            lda #BANK_X16_USE_VERAFX_COPY
+            sta $00
+        .endif
+            lda p8v_src
+            sta $22
+            lda p8v_src+1
+            sta $23
+            lda p8v_srchi
+            sta $24
+            lda p8v_dst
+            sta $25
+            lda p8v_dst+1
+            sta $26
+            lda p8v_dsthi
+            sta $27
+            lda p8v_count
+            sta $28
+            lda p8v_count+1
+            sta $29
+            jsr x16src.fx_copy
+        .if BANK_X16_USE_VERAFX_COPY
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    ; enter affine mode and describe the texture
+    sub fx_affine_on(uword tiledata, ubyte tiledatahi, uword tilemap, ubyte tilemaphi, ubyte mapsize, ubyte clip) {
+        %asm {{
+        .if BANK_X16_USE_VERAFX_AFFINE
+            lda $00
+            pha
+            lda #BANK_X16_USE_VERAFX_AFFINE
+            sta $00
+        .endif
+            lda p8v_tiledata
+            sta $22
+            lda p8v_tiledata+1
+            sta $23
+            lda p8v_tiledatahi
+            sta $24
+            lda p8v_tilemap
+            sta $25
+            lda p8v_tilemap+1
+            sta $26
+            lda p8v_tilemaphi
+            sta $27
+            lda p8v_mapsize
+            sta $28
+            lda p8v_clip
+            sta $29
+            jsr x16src.fx_affine_on
+        .if BANK_X16_USE_VERAFX_AFFINE
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    ; aim the sampler (dx/dy signed, 1/512 texel units)
+    sub fx_affine_ray(uword x_, uword y_, uword dx, uword dy) {
+        %asm {{
+        .if BANK_X16_USE_VERAFX_AFFINE
+            lda $00
+            pha
+            lda #BANK_X16_USE_VERAFX_AFFINE
+            sta $00
+        .endif
+            lda p8v_x_
+            sta $22
+            lda p8v_x_+1
+            sta $23
+            lda p8v_y_
+            sta $24
+            lda p8v_y_+1
+            sta $25
+            lda p8v_dx
+            sta $26
+            lda p8v_dx+1
+            sta $27
+            lda p8v_dy
+            sta $28
+            lda p8v_dy+1
+            sta $29
+            jsr x16src.fx_affine_ray
+        .if BANK_X16_USE_VERAFX_AFFINE
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    ; fetch texels along the ray into VRAM; port 0 must already point at the destination
+    sub fx_affine_span(uword count) {
+        %asm {{
+        .if BANK_X16_USE_VERAFX_AFFINE
+            lda $00
+            pha
+            lda #BANK_X16_USE_VERAFX_AFFINE
+            sta $00
+        .endif
+            lda p8v_count
+            sta $22
+            lda p8v_count+1
+            sta $23
+            jsr x16src.fx_affine_span
+        .if BANK_X16_USE_VERAFX_AFFINE
             pla
             sta $00
         .endif

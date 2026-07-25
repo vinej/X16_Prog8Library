@@ -26,11 +26,20 @@ This page expands the compact listing from `macroguide.md`. Macro arguments are 
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.fio_set_lfs(logical, device, secondary)
+        ; KERNAL file setup
+        cx.fio_set_lfs(1, 8, 0)
+        cx.fio_set_name(file_name, 16)
     }
 }
+
+%asm {{
+    file_name   !text "SAVEGAME,S,R", 0
+}}
+
 ```
 
 ## `cx.fio_open_named/open_read/open_write name, len, logical, device, secondary`
@@ -47,11 +56,21 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.fio_open_named()
+        ; open helpers
+        cx.fio_open_named(file_name, 16, 1, 8, 0)
+        cx.fio_open_read(file_name, 16, 1, 8, 0)
+        cx.fio_open_write(file_name, 16, 1, 8, 0)
     }
 }
+
+%asm {{
+    file_name   !text "SAVEGAME,S,R", 0
+}}
+
 ```
 
 ## `cx.fio_close(logical) / cx.fio_close_named(logical)`
@@ -68,11 +87,16 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.fio_close(logical)
+        ; close helpers
+        cx.fio_close(1)
+        cx.fio_close_named(1)
     }
 }
+
 ```
 
 ## `cx.fio_chkin(logical) / cx.fio_chkout(logical) / cx.fio_clrchn()`
@@ -89,11 +113,17 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.fio_chkin(logical)
+        ; channel helpers
+        cx.fio_chkin(1)
+        cx.fio_chkout(1)
+        cx.fio_clrchn()
     }
 }
+
 ```
 
 ## `cx.fio_chrin() / cx.fio_chrout(byte) / cx.fio_getin()`
@@ -110,11 +140,17 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; byte I/O helpers
         cx.fio_chrin()
+        cx.fio_chrout('A')
+        cx.fio_getin()
     }
 }
+
 ```
 
 ## `cx.fio_readst()`
@@ -131,11 +167,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; read KERNAL status
         cx.fio_readst()
     }
 }
+
 ```
 
 ## `cx.fio_close_all() / cx.fio_close_device(device)`
@@ -152,9 +192,33 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; bulk close helpers
         cx.fio_close_all()
+        cx.fio_close_device(8)
     }
 }
+
 ```
+
+<!-- generated: friendly macros for previously unwrapped routines -->
+
+## More of fileio
+
+These routines were always in the library; what they lacked was a
+friendly macro, so this is how to call them without writing the
+register set-up by hand. Most of them work on their module's own
+accumulator rather than on arguments.
+
+## `cx.fio_open()`
+
+| Field | Details |
+|---|---|
+| Macro | `cx.fio_open()` |
+| Purpose | carry set on error, A = the KERNAL error code |
+| Input parameters | None — operates on the module's own state. |
+| Output parameters | Nothing the macro can hand back; see the routine's header. |
+| More info | Available when `X16_USE_FILEIO` is enabled. |

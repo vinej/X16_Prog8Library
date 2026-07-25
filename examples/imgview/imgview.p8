@@ -3,7 +3,7 @@
 ; The X16 cannot decode PNG/JPG itself, so convert on the PC first:
 ;     python tools\img2bmx.py photo.jpg build\IMAGE.BMX
 ; then build + run this (the emulator's -fsroot is build\, where IMAGE.BMX is):
-;     .\build.ps1 examples\imgview.p8 -Run
+;     .\build.ps1 examples\imgview\imgview.p8 -Run
 ;
 ; On the X16 it is a single library call: cx.bmx_load_hires() streams the
 ; palette into the VERA_2 palette and the pixels into VERA_2 SDRAM.

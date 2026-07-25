@@ -4,7 +4,7 @@
 ; message and the number 1234 through the library's own screen routines,
 ; then poke a '*' into the text screen via VERA.
 ;
-; Build:  build.ps1 examples\hello.p8      (see README.md)
+; Build:  build.ps1 examples\hello\hello.p8      (see README.md)
 
 %import x16lib             ; typed wrappers + the embedded library source
 %import x16lib_const       ; VRAM_TEXT, VERA_INC_*, ... constants

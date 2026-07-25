@@ -26,11 +26,17 @@ This page expands the compact listing from `macroguide.md`. Macro arguments are 
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; keyboard scan/read/write helpers
         cx.kbd_scan()
+        cx.kbd_peek()
+        cx.kbd_put('Y')
     }
 }
+
 ```
 
 ## `cx.kbd_get_modifiers()`
@@ -47,11 +53,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; read modifier state
         cx.kbd_get_modifiers()
     }
 }
+
 ```
 
 ## `cx.kbd_get_keymap() / cx.kbd_set_keymap(name)`
@@ -68,9 +78,18 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; keymap helpers
         cx.kbd_get_keymap()
+        cx.kbd_set_keymap(file_name)
     }
 }
+
+%asm {{
+    file_name   !text "SAVEGAME,S,R", 0
+}}
+
 ```

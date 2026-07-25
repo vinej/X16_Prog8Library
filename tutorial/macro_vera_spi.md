@@ -26,11 +26,16 @@ This page expands the compact listing from `macroguide.md`. Macro arguments are 
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; Select an SPI device and exchange command bytes.
         cx.spi_get_ctrl()
+        cx.spi_set_ctrl($01)
     }
 }
+
 ```
 
 ## `cx.spi_select() / cx.spi_deselect()`
@@ -47,11 +52,16 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; Select an SPI device and exchange command bytes.
         cx.spi_select()
+        cx.spi_deselect()
     }
 }
+
 ```
 
 ## `cx.spi_slow() / cx.spi_fast()`
@@ -68,11 +78,16 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; Select an SPI device and exchange command bytes.
         cx.spi_slow()
+        cx.spi_fast()
     }
 }
+
 ```
 
 ## `cx.spi_autotx_on() / cx.spi_autotx_off()`
@@ -89,11 +104,16 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; Select an SPI device and exchange command bytes.
         cx.spi_autotx_on()
+        cx.spi_autotx_off()
     }
 }
+
 ```
 
 ## `cx.spi_wait()`
@@ -110,11 +130,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; Select an SPI device and exchange command bytes.
         cx.spi_wait()
     }
 }
+
 ```
 
 ## `cx.spi_transfer(byte)`
@@ -131,11 +155,15 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.spi_transfer(byte)
+        ; Select an SPI device and exchange command bytes.
+        cx.spi_transfer('A')
     }
 }
+
 ```
 
 ## `cx.spi_read() / cx.spi_write(byte) / cx.spi_autotx_read()`
@@ -152,11 +180,17 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
+        ; Select an SPI device and exchange command bytes.
         cx.spi_read()
+        cx.spi_write('A')
+        cx.spi_autotx_read()
     }
 }
+
 ```
 
 ## `cx.spi_read_bytes(buffer, count) / cx.spi_write_bytes(buffer, count)`
@@ -173,9 +207,14 @@ main {
 ```prog8
 %import x16lib
 
+
+
 main {
     sub start() {
-        cx.spi_read_bytes(buffer, count)
+        ; Select an SPI device and exchange command bytes.
+        cx.spi_read_bytes(1, 32)
+        cx.spi_write_bytes(1, 32)
     }
 }
+
 ```

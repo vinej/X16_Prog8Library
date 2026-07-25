@@ -41,14 +41,17 @@ Common increment constants are `VERA_INC_0`, `VERA_INC_1`, `VERA_INC_2`,
 | Example | See below. |
 
 ```prog8
-const long VRAM_TEXT = $1B000
+%import x16lib
 
-; Point port 0 at VRAM_TEXT and advance by one byte after each DATA0 access.
-cx.vera_set_addr0(lsb(VRAM_TEXT), msb(VRAM_TEXT), (((VRAM_TEXT >> 16)) & VERA_ADDR_H_BANK) | (VERA_INC_1 << 4))
-%asm {{
-    lda #'A'
-    sta VERA_DATA0
-}}
+
+
+main {
+    sub start() {
+        ; Point VERA data port 0 at a runtime or macro-supplied VRAM address. Use this before reading or writing through `VERA_DATA0`, or before calling `+xm_vera_fill`
+        cx.vera_set_addr0(1, 1, 64)
+    }
+}
+
 ```
 
 ## `cx.vera_set_addr1(l, m, h)`
@@ -63,14 +66,17 @@ cx.vera_set_addr0(lsb(VRAM_TEXT), msb(VRAM_TEXT), (((VRAM_TEXT >> 16)) & VERA_AD
 | Example | See below. |
 
 ```prog8
-const long VRAM_DEST = $1C000
+%import x16lib
 
-; Point port 1 at VRAM_DEST and advance by one byte after each DATA1 access.
-cx.vera_set_addr1(lsb(VRAM_DEST), msb(VRAM_DEST), (((VRAM_DEST >> 16)) & VERA_ADDR_H_BANK) | (VERA_INC_1 << 4))
-%asm {{
-    lda #$20
-    sta VERA_DATA1
-}}
+
+
+main {
+    sub start() {
+        ; Point VERA data port 1 at a runtime or macro-supplied VRAM address. This is most useful when copying from port 0 to port 1 with `+xm_vera_copy`, or when a routine needs a second independent VERA stream
+        cx.vera_set_addr1(1, 1, 64)
+    }
+}
+
 ```
 
 ## `cx.vera_fill(val, count)`
@@ -85,11 +91,17 @@ cx.vera_set_addr1(lsb(VRAM_DEST), msb(VRAM_DEST), (((VRAM_DEST >> 16)) & VERA_AD
 | Example | See below. |
 
 ```prog8
-const long VRAM_TEXT = $1B000
+%import x16lib
 
-; Clear 80 bytes of text memory to PETSCII space.
-cx.vera_set_addr0(lsb(VRAM_TEXT), msb(VRAM_TEXT), (((VRAM_TEXT >> 16)) & VERA_ADDR_H_BANK) | (VERA_INC_1 << 4))
-cx.vera_fill($20, 80)
+
+
+main {
+    sub start() {
+        ; Write the same byte repeatedly through `VERA_DATA0`, starting at the current port 0 address. Use it for fast clears, solid spans, repeated tile bytes, palette bytes, and any other linear or strided fill
+        cx.vera_fill($20, 32)
+    }
+}
+
 ```
 
 ## `cx.vera_copy(count)`
@@ -104,11 +116,34 @@ cx.vera_fill($20, 80)
 | Example | See below. |
 
 ```prog8
-const long VRAM_SRC = $1B000
-const long VRAM_DEST = $1C000
+%import x16lib
 
-; Copy 256 bytes from VRAM_SRC to VRAM_DEST.
-cx.vera_set_addr0(lsb(VRAM_SRC), msb(VRAM_SRC), (((VRAM_SRC >> 16)) & VERA_ADDR_H_BANK) | (VERA_INC_1 << 4))
-cx.vera_set_addr1(lsb(VRAM_DEST), msb(VRAM_DEST), (((VRAM_DEST >> 16)) & VERA_ADDR_H_BANK) | (VERA_INC_1 << 4))
-cx.vera_copy(256)
+
+
+main {
+    sub start() {
+        ; Copy bytes from VERA data port 0 to VERA data port 1. Use it for VRAM-to-VRAM blits when both source and destination can be streamed with VERA auto-increment
+        cx.vera_copy(32)
+    }
+}
+
 ```
+
+<!-- generated: friendly macros for previously unwrapped routines -->
+
+## More of vera
+
+These routines were always in the library; what they lacked was a
+friendly macro, so this is how to call them without writing the
+register set-up by hand. Most of them work on their module's own
+accumulator rather than on arguments.
+
+## `cx.vera_has_fx()`
+
+| Field | Details |
+|---|---|
+| Macro | `cx.vera_has_fx()` |
+| Purpose | A = major version (only meaningful when carry is set) |
+| Input parameters | None — operates on the module's own state. |
+| Output parameters | Nothing the macro can hand back; see the routine's header. |
+| More info | Available when `X16_USE_VERA_FXPROBE` is enabled. |
