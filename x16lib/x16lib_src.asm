@@ -18971,6 +18971,125 @@ fs_vload
     stz X16_P4                  ; SETLFS SA = 0 (does not disturb A)
     bra load_load_common
 
+; ---------------------------------------------------------------------
+; fs_prg_entry -- a PRG's entry address, read without loading the file
+;   in:  X16_P0/P1 = filename address
+;        X16_P2    = filename length
+;        X16_P3    = device (usually 8)
+;   out: X/Y = the SYS address out of the file's BASIC stub, or $0000 if
+;        the file cannot be read or does not begin with one
+;
+; A launcher has to know where to JSR before it hands the machine over,
+; and loading the file to find out is the one thing it cannot do: the
+; load would overwrite the launcher asking the question. So this reads
+; the first few bytes off the disk and parses the stub where it lies:
+;
+;   two load-address bytes, two link bytes, two line-number bytes,
+;   the SYS token ($9E), any spaces, then the address in ASCII.
+;
+; The address is read rather than assumed -- a compiler emitting
+; "SYS 2071" today moves that number the moment the stub text changes.
+; $0000 doubles as "no entry here", since no PRG can start there.
+;
+; Uses logical file 1, as fs_load does, on secondary address 2 so the
+; bytes arrive raw rather than being treated as a program to relocate.
+; ---------------------------------------------------------------------
+FS_PRG_SKIP = 6                 ; load address, link, line number
+
+fs_prg_entry
+    stz X16_T0                  ; the result, built a digit at a time
+    stz X16_T1
+
+    lda X16_P2
+    jsr fs_setname
+    lda #1                      ; logical file
+    ldx X16_P3                  ; device
+    ldy #2                      ; a plain data channel
+    jsr SETLFS
+    jsr OPEN
+    bcs load_quit
+    ldx #1
+    jsr CHKIN
+    bcs load_quit
+
+    lda #FS_PRG_SKIP            ; CHRIN is free to clobber Y, so the
+    sta X16_T6                  ; count cannot live there
+load_skip
+    jsr load_getb
+    bcs load_quit
+    dec X16_T6
+    bne load_skip
+
+    jsr load_getb                   ; the SYS token
+    bcs load_quit
+    cmp #$9E
+    bne load_quit
+load_space
+    jsr load_getb
+    bcs load_quit
+    cmp #' '
+    beq load_space
+                                ; A = the first character after them
+load_digit
+    cmp #'0'
+    bcc load_quit                   ; a non-digit ends the number, and
+    cmp #'9'+1                  ; ending it before it starts leaves 0
+    bcs load_quit
+
+    sec
+    sbc #'0'
+    sta X16_T2
+
+    lda X16_T0                  ; result = result * 10 + digit,
+    sta X16_T3                  ; taking *10 as ((r * 4) + r) * 2
+    lda X16_T1
+    sta X16_T4
+    asl X16_T0
+    rol X16_T1
+    asl X16_T0
+    rol X16_T1
+    clc
+    lda X16_T0
+    adc X16_T3
+    sta X16_T0
+    lda X16_T1
+    adc X16_T4
+    sta X16_T1
+    asl X16_T0
+    rol X16_T1
+    clc
+    lda X16_T0
+    adc X16_T2
+    sta X16_T0
+    lda X16_T1
+    adc #0
+    sta X16_T1
+
+    jsr load_getb
+    bcc load_digit                  ; ran out of file: keep what we have
+
+load_quit
+    jsr CLRCHN
+    lda #1
+    jsr CLOSE
+    ldx X16_T0
+    ldy X16_T1
+    rts
+
+; one byte from the open channel; carry set if the file ended first
+load_getb
+    jsr CHRIN
+    sta X16_T5
+    jsr READST
+    cmp #0
+    bne load_getb_end
+    lda X16_T5
+    clc
+    rts
+load_getb_end
+    sec
+    rts
+
 ; (end zone)
 .endif
 .if xuse_dos

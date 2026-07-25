@@ -236,22 +236,24 @@ cx.shape_frrect(40, 40, 200, 110, 28, 1)
 
 ## Coverage
 
-The wrapper exposes **671 routines** across every X16_Library module — VERA,
+The wrapper exposes **673 routines** across every X16_Library module — VERA,
 screen, palette, sprites, tiles, all six bitmap engines, shapes (circle, disc,
 poly, rrect, arc, pie, bezier), graph/framebuffer/console, PSG/YM/PCM/ADPCM and
 the ROM-audio API, serial/I2C/SPI/ZiModem, keyboard/mouse, clock, banking,
 file/DOS/IEC, math, strings, BCD, the 8 KB LIFO stack and FIFO ring, character
-classification, 16/32-bit integers, fixed/float/double, and more — plus **423
+classification, 16/32-bit integers, fixed/float/double, and more — plus **425
 constants**. Only the modules you use are linked.
 
 A wrapper exists for a routine when the library gives it an `xm_` "friendly
 macro" — that is what the generator reads to learn the calling convention. The
 one gap left is that a handful of macros do **assemble-time arithmetic on an
 argument**: they assume a compile-time constant and cannot be driven with a
-runtime value, so no wrapper is generated. Call those through inline asm.
+runtime value, so no wrapper is generated. Call those through inline asm — or
+better, ask for a macro that takes the argument pre-split, which is how
+`sprite_image_at` came to exist alongside the constant-only `sprite_image`.
 **Return values** (`-> ubyte` / `-> uword` / `-> bool`) are read from each
 routine's `out:` header in the library: `A` or `X` or `Y` becomes a `ubyte`,
-`A = low, X = high` a `uword`, and a documented carry a `bool`. **163** of the
+`A = low, X = high` a `uword`, and a documented carry a `bool`. **168** of the
 wrappers carry one. The derivation refuses to guess — a routine that documents
 both a carry and a register (`gfx8h_read`: "carry clear, A = colour; carry set
 if off screen") gets no return type rather than a plausible-looking wrong one,

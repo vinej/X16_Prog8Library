@@ -258,6 +258,10 @@ def doc_return(target):
         return "AX"
     if lo_hi("A", "Y") or re.search(r"\bA/Y\b|\bAY\b", tail):
         return "AY"
+    # "X/Y = ..." is one 16-bit answer, but the single-register patterns
+    # above see only the Y half of it and would call the result a ubyte.
+    if lo_hi("X", "Y") or re.search(r"\bX/Y\b|\bXY\b", tail):
+        return "XY"
     if regs[1] and regs[2] and not regs[0]:
         return "XY"
     if regs[0]:

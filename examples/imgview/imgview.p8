@@ -7,6 +7,9 @@
 ;
 ; On the X16 it is a single library call: cx.bmx_load_hires() streams the
 ; palette into the VERA_2 palette and the pixels into VERA_2 SDRAM.
+;
+; Press ESC to leave. Returning rather than looping forever is what
+; lets examples\desktop launch this and get control back afterwards.
 
 %import x16lib
 %import x16lib_const
@@ -21,6 +24,12 @@ main {
         cx.load_banks()                 ; no-op unless modules were -Bank'd
         cx.gfx8h_init()                 ; 640x480 @ 8bpp (needs VERA_2 / -bitmap2)
         cx.bmx_load_hires(&filename, len(filename), 8)
-        repeat { }
-    }
+        while true {                    ; ESC leaves; other keys are ignored
+            ubyte k = cx.key_wait()      ; so a stray press cannot dismiss it
+            if k == $1B or k == $03
+                break
+        }
+        cx.gfx8h_off()                  ; CINT restores the primary VERA only,
+        cx.screen_reset()               ; so drop the VERA_2 bitmap ourselves
+    }                                   ; or it hides whatever comes next
 }

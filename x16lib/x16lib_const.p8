@@ -84,6 +84,7 @@ x16c {
     const ubyte FP_FACSGN = $C8
     const uword FP_FBUFFR = $100
     const ubyte FP_SIZE = $5
+    const ubyte FS_PRG_SKIP = $6
     const ubyte FS_SA_ADDR = $0
     const ubyte FS_SA_HEADER = $1
     const ubyte FS_SA_RAW = $2

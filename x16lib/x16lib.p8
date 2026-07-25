@@ -992,6 +992,31 @@ cx {
         }}
     }
 
+    ; The same call with the address already split, so every argument can be a variable: vbank = address bit 16, vad
+    sub sprite_image_at(ubyte sprite, ubyte vbank, uword vaddr, ubyte mode) {
+        %asm {{
+        .if BANK_X16_USE_SPRITE
+            lda $00
+            pha
+            lda #BANK_X16_USE_SPRITE
+            sta $00
+        .endif
+            ldx p8v_sprite
+            lda p8v_vaddr
+            sta $22
+            lda p8v_vaddr+1
+            sta $23
+            lda p8v_vbank
+            sta $24
+            lda p8v_mode
+            jsr x16src.sprite_image
+        .if BANK_X16_USE_SPRITE
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
     sub sprite_flags(ubyte sprite, ubyte flags) {
         %asm {{
         .if BANK_X16_USE_SPRITE
@@ -8399,6 +8424,34 @@ cx {
             sta $00
         .endif
         }}
+    }
+
+    ; -> X/Y = entry address, or $0000 if the file has no BASIC stub
+    sub fs_prg_entry(uword name, ubyte len_, ubyte device) -> uword {
+        %asm {{
+        .if BANK_X16_USE_LOAD
+            lda $00
+            pha
+            lda #BANK_X16_USE_LOAD
+            sta $00
+        .endif
+            lda p8v_name
+            sta $22
+            lda p8v_name+1
+            sta $23
+            lda p8v_len_
+            sta $24
+            lda p8v_device
+            sta $25
+            jsr x16src.fs_prg_entry
+            stx p8v_ret16
+            sty p8v_ret16+1
+        .if BANK_X16_USE_LOAD
+            pla
+            sta $00
+        .endif
+        }}
+        return ret16
     }
 
     ; storage/dos -> A = status code
