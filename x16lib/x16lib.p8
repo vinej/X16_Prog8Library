@@ -6668,7 +6668,25 @@ cx {
         }}
     }
 
-    ; audio/zsm  (compact ZSM stream player)
+    ; audio/zsm  (compact ZSM stream player) -> A = ZSM_ERR_* from the last zsm_init
+    sub zsm_lasterr() -> ubyte {
+        %asm {{
+        .if BANK_X16_USE_ZSM
+            lda $00
+            pha
+            lda #BANK_X16_USE_ZSM
+            sta $00
+        .endif
+            jsr x16src.zsm_lasterr
+            sta p8v_ret8
+        .if BANK_X16_USE_ZSM
+            pla
+            sta $00
+        .endif
+        }}
+        return ret8
+    }
+
     sub zsm_init(uword header) {
         %asm {{
         .if BANK_X16_USE_ZSM
@@ -8452,6 +8470,25 @@ cx {
         .endif
         }}
         return ret16
+    }
+
+    ; -> A = BMX_ERR_* from the last bmx_* call, or 0 if it worked
+    sub bmx_lasterr() -> ubyte {
+        %asm {{
+        .if BANK_X16_USE_BMX
+            lda $00
+            pha
+            lda #BANK_X16_USE_BMX
+            sta $00
+        .endif
+            jsr x16src.bmx_lasterr
+            sta p8v_ret8
+        .if BANK_X16_USE_BMX
+            pla
+            sta $00
+        .endif
+        }}
+        return ret8
     }
 
     ; storage/dir a length of 0 asks for the current directory; -> carry set = failed
@@ -11392,8 +11429,8 @@ cx {
         return ret8
     }
 
-    ; string/find -> carry set + A = index if found
-    sub str_find(uword str_, ubyte ch) -> bool {
+    ; string/find -> A = index, or 255 if not found
+    sub str_find(uword str_, ubyte ch) -> ubyte {
         %asm {{
         .if BANK_X16_USE_STRING_FIND
             lda $00
@@ -11405,18 +11442,16 @@ cx {
             lda p8v_str_
             ldx p8v_str_+1
             jsr x16src.str_find
-            lda #0
-            rol  a
-            sta p8v_retbit
+            sta p8v_ret8
         .if BANK_X16_USE_STRING_FIND
             pla
             sta $00
         .endif
         }}
-        return retbit
+        return ret8
     }
 
-    sub str_rfind(uword str_, ubyte ch) {
+    sub str_rfind(uword str_, ubyte ch) -> ubyte {
         %asm {{
         .if BANK_X16_USE_STRING_FIND
             lda $00
@@ -11428,14 +11463,16 @@ cx {
             lda p8v_str_
             ldx p8v_str_+1
             jsr x16src.str_rfind
+            sta p8v_ret8
         .if BANK_X16_USE_STRING_FIND
             pla
             sta $00
         .endif
         }}
+        return ret8
     }
 
-    sub str_find_eol(uword str_) {
+    sub str_find_eol(uword str_) -> ubyte {
         %asm {{
         .if BANK_X16_USE_STRING_FIND
             lda $00
@@ -11446,11 +11483,13 @@ cx {
             lda p8v_str_
             ldx p8v_str_+1
             jsr x16src.str_find_eol
+            sta p8v_ret8
         .if BANK_X16_USE_STRING_FIND
             pla
             sta $00
         .endif
         }}
+        return ret8
     }
 
     ; -> carry set if the character occurs
@@ -13175,7 +13214,7 @@ cx {
         return ret8
     }
 
-    sub screen_get_cursor() {
+    sub screen_get_cursor() -> uword {
         %asm {{
         .if BANK_X16_USE_SCREEN_EXTRA
             lda $00
@@ -13184,11 +13223,14 @@ cx {
             sta $00
         .endif
             jsr x16src.screen_get_cursor
+            stx p8v_ret16
+            sty p8v_ret16+1
         .if BANK_X16_USE_SCREEN_EXTRA
             pla
             sta $00
         .endif
         }}
+        return ret16
     }
 
     sub vera_has_fx() {
@@ -13908,9 +13950,9 @@ cx {
             lda p8v_start_+1
             sta $28
             lda p8v_end
-            sta X16_T6
+            sta $30
             lda p8v_end+1
-            sta X16_T7
+            sta $31
             jsr x16src.fs_save
         .if BANK_X16_USE_LOAD
             pla

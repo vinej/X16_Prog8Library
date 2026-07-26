@@ -1837,6 +1837,13 @@ screen_locate
     clc
     jmp PLOT
 
+; ---------------------------------------------------------------------
+; screen_get_cursor -- where the cursor is
+;   out: X/Y = row and column
+;
+; PLOT with the carry SET reads rather than writes, which is the whole
+; difference between this and screen_locate above.
+; ---------------------------------------------------------------------
 .if xuse_screen_extra
 screen_get_cursor
     sec
@@ -15169,7 +15176,19 @@ ar_ym_get_chip_type   ; out: A=0 none, 1 OPP, 2 OPM, 3 unexpected
 ; 16-bit address space and uses the existing AFLOW PCM streamer.
 ;
 ; Call zsm_tick at the ZSM header's tick rate. Use zsm_get_tickrate after
-; zsm_init if you need to configure your scheduler.
+; ; ---------------------------------------------------------------------
+; zsm_lasterr -- why the last zsm_init failed
+;   out: A = ZSM_ERR_* (ZSM_ERR_NONE after one that worked)
+;
+; zsm_init answers with both a carry and a code, and a caller that can
+; only read one of them needs the code: "it would not start" is not much
+; to go on when the answer is that the file is a version too new.
+; ---------------------------------------------------------------------
+zsm_lasterr
+    lda zsm_code
+    rts
+
+zsm_init if you need to configure your scheduler.
 ; =====================================================================
 
 ; (zone: file scope in 64tass)
@@ -15179,6 +15198,8 @@ ZSM_ERR_MAGIC   = 1
 ZSM_ERR_VERSION = 2
 ZSM_ERR_RANGE   = 3
 ZSM_ERR_PCM     = 4
+
+zsm_code        .byte 0         ; the last ZSM_ERR_*, for zsm_lasterr
 
 ZSM_FLAG_ACTIVE = %00000001
 ZSM_FLAG_LOOP   = %00000010
@@ -15277,23 +15298,28 @@ _state
     sta zsm_flags
     stz zsm_delay
     lda #ZSM_ERR_NONE
+    sta zsm_code
     clc
     rts
 _magic
     lda #ZSM_ERR_MAGIC
+    sta zsm_code
     sec
     rts
 _version
     lda #ZSM_ERR_VERSION
+    sta zsm_code
     sec
     rts
 _range
     lda #ZSM_ERR_RANGE
+    sta zsm_code
     sec
     rts
 .if xuse_zsm_pcm
 _pcm_error
     lda #ZSM_ERR_PCM
+    sta zsm_code
     sec
     rts
 .endif
@@ -19232,7 +19258,11 @@ dos_lasterr
 ;   dos_delete   S:name       scratch a file
 ;   dos_mkdir    MD:name      make a directory
 ;   dos_rmdir    RD:name      remove a directory
-;   dos_chdir    CD:name      change directory ("//" is the root)
+;   dos_chdir    CD:name      change directory ("/" is the root)
+;
+; Note "/" and not "//": an emulator's host-filesystem emulation accepts
+; CD://, but a real card answers 62, FILE NOT FOUND -- and a chdir that
+; fails says nothing, so the caller carries on in the wrong directory.
 ;
 ; dos_rename additionally takes the OLD name in X16_P0/P1 with its
 ; length in X16_P2, and renames it to the A/X/Y name:  R:new=old
@@ -19651,10 +19681,24 @@ bmx_palstart .byte 0
 bmx_palcount .word 256          ; 1-256 entries
 bmx_border   .byte 0
 bmx_stride   .word 320          ; VRAM bytes between row starts
+bmx_code     .byte 0            ; the last BMX_ERR_*, for bmx_lasterr
 
 BMX_ERR_IO     = 1              ; open/read/write failed
 BMX_ERR_FORMAT = 2              ; not a BMX, or not version 1
 BMX_ERR_PACKED = 3              ; compressed data is not supported
+
+; ---------------------------------------------------------------------
+; bmx_lasterr -- why the last bmx_* call failed
+;   out: A = BMX_ERR_IO / _FORMAT / _PACKED, or 0 after a call that worked
+;
+; These routines answer twice -- the carry says whether, A says why -- and
+; a caller that can only see one of them (a generated binding will not
+; guess a type for a routine documenting both) would otherwise be left
+; unable to tell a missing file from a loaded one.
+; ---------------------------------------------------------------------
+bmx_lasterr
+    lda bmx_code
+    rts
 
 ; ---------------------------------------------------------------------
 ; bmx_load -- load a BMX file: palette into the VERA palette, pixels
@@ -19666,9 +19710,11 @@ BMX_ERR_PACKED = 3              ; compressed data is not supported
 ;        bmx_width/height/bpp/palstart/palcount/border reflect the file
 ; ---------------------------------------------------------------------
 bmx_load
+    stz bmx_code
     jsr bmx_open_read
     bcc _hdr
     lda #BMX_ERR_IO
+    sta bmx_code
     rts
 _hdr
     ldx #0                      ; pull in the 16-byte header
@@ -19691,6 +19737,7 @@ _get_hdr
     jsr READST
     beq _validate
     lda #BMX_ERR_IO
+    sta bmx_code
     bra _close_err
 
 _validate
@@ -19709,9 +19756,11 @@ _validate
     lda bmx_hdr+14
     beq _fmt_ok
     lda #BMX_ERR_PACKED
+    sta bmx_code
     bra _close_err
 _bad_fmt
     lda #BMX_ERR_FORMAT
+    sta bmx_code
 _close_err
     pha
     jsr bmx_close_read
@@ -19868,6 +19917,7 @@ _dec_rows
 
 _io_short
     lda #BMX_ERR_IO
+    sta bmx_code
     jmp _close_err
 
 _done
@@ -19885,9 +19935,11 @@ _done
 ;   out: carry clear on success, set with A = BMX_ERR_IO on failure
 ; ---------------------------------------------------------------------
 bmx_save
+    stz bmx_code
     jsr bmx_open_write
     bcc _wr_hdr
     lda #BMX_ERR_IO
+    sta bmx_code
     rts
 _wr_hdr
     lda #'B'
@@ -20042,9 +20094,11 @@ _wdone
 BMX_HIRES_STRIDE = 640
 
 bmx_load_hires
+    stz bmx_code
     jsr bmx_open_read
     bcc _hdr
     lda #BMX_ERR_IO
+    sta bmx_code
     rts
 _hdr
     ldx #0                      ; pull in the 16-byte header
@@ -20058,6 +20112,7 @@ _get_hdr
     jsr READST                  ; a short/absent header is an I/O error
     beq _validate
     lda #BMX_ERR_IO
+    sta bmx_code
     bra _close_err
 _validate
     lda bmx_hdr
@@ -20075,9 +20130,11 @@ _validate
     lda bmx_hdr+14
     beq _fmt_ok
     lda #BMX_ERR_PACKED
+    sta bmx_code
     bra _close_err
 _bad_fmt
     lda #BMX_ERR_FORMAT
+    sta bmx_code
 _close_err
     pha
     jsr bmx_close_read
@@ -20212,6 +20269,7 @@ _dec_rows
 
 _io_short
     lda #BMX_ERR_IO
+    sta bmx_code
     jmp _close_err
 
 _done
@@ -28421,12 +28479,13 @@ _same
 ; Locate a character (forward or backward), find the first line ending,
 ; test membership, or match a wildcard pattern. The string is passed in
 ; A (low) / X (high); the character to look for is in Y. The find
-; routines return the carry set and the index in A when they hit, or the
-; carry clear and A = 255 when they miss.
+; routines answer in A -- the index when they hit, 255 when they miss --
+; and set the carry to say the same thing, so a caller can read whichever
+; suits it.
 ;
 ;       lda #<path : ldx #>path
 ;       ldy #'/'
-;       jsr str_rfind                 ; index of the last '/', carry set
+;       jsr str_rfind                 ; A = index of the last '/', or 255
 ; =====================================================================
 
 ; (zone: file scope in 64tass)
@@ -28434,7 +28493,8 @@ _same
 ; ---------------------------------------------------------------------
 ; str_find -- first index of a character, scanning left to right.
 ;   in:  A = low, X = high, Y = character
-;   out: carry set + A = index if found; carry clear + A = 255 if not
+;   out: A = the index, or 255 when the character is not there
+;        (the carry says the same thing: set when found)
 ; ---------------------------------------------------------------------
 str_find
     sta X16_T0
@@ -28467,7 +28527,8 @@ str_contains
 ; ---------------------------------------------------------------------
 ; str_find_eol -- first index of a CR (13) or LF (10).
 ;   in:  A = low, X = high
-;   out: carry set + A = index if found; carry clear + A = 255 if not
+;   out: A = the index, or 255 when the character is not there
+;        (the carry says the same thing: set when found)
 ; ---------------------------------------------------------------------
 str_find_eol
     sta X16_T0
@@ -28494,7 +28555,8 @@ _found
 ; ---------------------------------------------------------------------
 ; str_rfind -- first index of a character, scanning right to left.
 ;   in:  A = low, X = high, Y = character
-;   out: carry set + A = index if found; carry clear + A = 255 if not
+;   out: A = the index, or 255 when the character is not there
+;        (the carry says the same thing: set when found)
 ; ---------------------------------------------------------------------
 str_rfind
     sty X16_T2

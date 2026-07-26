@@ -12,3 +12,12 @@
 *.png
 *.bmx
 *.vice-mon-list
+
+# SD card images: half a gigabyte each, and someone else's files
+*.img
+*.img.old
+
+# the desktop's saved icon list -- one per machine, not shared
+DESKTOP.CFG
+
+__pycache__/

@@ -131,7 +131,13 @@ def gen_consts(sym):
 # ---------------------------------------------------------------------
 # 4. wrappers from sugar.asm  (reuse the blob generator's parser rules)
 # ---------------------------------------------------------------------
+# The library's zero page is P0-P7 then T0-T7, $22-$31. Both halves have
+# to be substituted: a wrapper that emits "sta X16_T6" instead of "sta $30"
+# names a symbol defined inside the library's own block, which the
+# generated inline asm cannot see -- fs_save, the one routine that passes
+# an argument in T, would not assemble at all.
 PBLOCK = {f"X16_P{k}": 0x22 + k for k in range(8)}
+PBLOCK.update({f"X16_T{k}": 0x2A + k for k in range(8)})
 RET = {
     "A":  ("ubyte", "ret8",  ["sta p8v_ret8"]),
     "X":  ("ubyte", "ret8",  ["stx p8v_ret8"]),
