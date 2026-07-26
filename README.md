@@ -232,6 +232,47 @@ command reference, the formula syntax, how it maps onto the library, and the
 two Prog8 pitfalls it ran into (zero-page collisions with `X16_P0..P7`, and
 static locals in a recursive parser).
 
+## `filepick` — a file browser any program can put on screen
+
+`x16lib/filepick.p8` is the desktop's directory panel, lifted out so there is
+one copy rather than one per program: mouse and keyboard, scrolling, descent
+into folders, and an absolute path handed back.
+
+```prog8
+%import filepick
+
+filepick.filter("*.bmx")              ; what to list
+if filepick.open() == filepick.PICK
+    load_it(filepick.path())          ; absolute, ready to open
+filepick.close()
+```
+
+The filter is a `;`-separated list — `"*.prg"`, `"*.bmx;*.png"`, `"*.klk;*.csv"`,
+or `"*.*"` for everything. Directories are always listed whatever the filter
+says, or there would be no way to reach the file you wanted, and matching folds
+case because the drive answers in ASCII while Prog8 source is PETSCII.
+
+Everything else is optional: `cache(addr, bank)` for the 2.5 KB listing,
+`style()`, `heading()`/`footing()`, `charset()`, `start_dir()`, and
+`saveunder(bank)` — which keeps the characters under the panel in a RAM bank
+and puts them back on close, for a program that cannot simply repaint. Set
+`primary("*.prg")` alongside `filter("*.*")` and anything that does not match
+is marked `[dat]`: that is how the desktop distinguishes what it can run from
+what it can only hand to another program.
+
+**`%zeropage dontuse` is required.** The browser calls library routines that
+own ZP `$22-$31`, and `basicsafe` hands Prog8 those same bytes — the symptom is
+a panel drawn in fragments across the screen, because `screen_addr` calculates
+through them.
+
+**Cost:** about **4 KB** of low RAM for the module, plus `X16_USE_DIR`, `MOUSE`,
+`CLOCK` and `SCREEN_EXTRA` if a program did not already use them (imgview went
+from 3.9 KB to 9.6 KB). That is Prog8 code, so `-Bank` cannot move it: banking
+relocates library modules only. `kalk` is the program this actually excludes —
+it is within about 3 KB of the low-RAM ceiling, and banking every library
+module it uses frees only 1.7 KB, because those modules are thin KERNAL
+bindings. kalk takes files from the desktop through `launcharg` instead.
+
 ## `launcharg` — telling a program which file to open
 
 The X16 has no `argv`. A program launched from a desktop or a shell knows only

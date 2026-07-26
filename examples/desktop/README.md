@@ -110,12 +110,16 @@ The handoff is `x16lib/launcharg.p8`: the path goes in golden RAM at
 `$0500` behind a magic, and the program reads it with `launcharg.get()`
 on the way in. It is the X16's missing `argv`, in about forty lines.
 
-This is deliberately *not* a file dialog inside every program. One
-browser, in the launcher, means the same keys and the same look
-everywhere, and a program that only needs a file at startup — imgview,
-kalk — needs no browser of its own at all. A program that wants to
-browse *while running* still would, and that is when the picker is worth
-extracting into a module.
+The browser itself now lives in `x16lib/filepick.p8`, shared: this
+desktop opens it with `filter("*.*")` and `primary("*.prg")`, imgview
+opens the same one with `filter("*.bmx")`. What stays here is what only
+a desktop wants — keeping an entry, choosing its icon, and handing a
+data file to a program that can open it.
+
+A program that only needs a file *at startup* still needs no browser at
+all: `launcharg` is cheaper and means one browser, one set of keys, one
+look. kalk works that way of necessity as well as taste — it is within
+3 KB of the low-RAM ceiling and the module costs 4 KB.
 
 Two things a launcher must get right, both learned the hard way:
 

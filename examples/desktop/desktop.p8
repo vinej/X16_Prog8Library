@@ -23,6 +23,7 @@
 %import x16lib
 %import x16lib_const
 %import launcharg
+%import filepick
 %zeropage dontuse         ; the library owns ZP $22-$31; keep Prog8 out of it
 
 main {
@@ -902,54 +903,31 @@ main {
 ; =====================================================================
 ; the program picker
 ;
-; A directory browser that can do two things with what it finds: run it
-; now, or keep it. Running is the cheap path -- no icon, no label, no
-; entry written -- and is what you want most of the time.
+; The browser itself is x16lib/filepick -- one copy, shared with imgview
+; and anything else that needs to ask "which file?". What stays here is
+; what only a desktop wants: keeping an entry, choosing its icon, and
+; handing a data file to a program that can open it.
 ;
-; Where we are comes from the drive rather than being tracked here: the
-; header line of every listing is the current directory's own path, so
-; descending is dos_chdir(name) and the panel just re-reads. That also
-; means the path stored for a program is absolute, so a launch can put
-; the drive exactly where the program expects to find itself.
+; The desktop lists EVERYTHING and marks anything that is not a .prg,
+; because a .bmx is not something it can run but is something it can
+; hand over. filepick.is_primary() is that distinction.
 ; =====================================================================
-    const uword ENTRIES = $A400       ; the listing cache, same bank as CFG
-    const ubyte E_SIZE  = 40
-    const ubyte E_TYPE  = 0
-    const ubyte E_NAME  = 1
-    const ubyte MAXENT  = 64
-
-    ; The panel, sized to whichever screen we are on. On 40x30 it is
-    ; almost the whole display; on 80x60 it is a window with the desktop
-    ; showing around it.
-    ubyte pk_rows
-    ubyte pk_left
-    ubyte pk_w
-    const ubyte PK_TOP  = 3
-
-    sub pick_layout() {
-        if hires {
-            pk_rows = 40
-            pk_left = 6
-            pk_w = 68
-        } else {
-            pk_rows = 22
-            pk_left = 1
-            pk_w = 38
-        }
-    }
-
-    ; The explorer is dressed like the title bar -- the same light grey
+    ; The browser is dressed like the title bar -- the same light grey
     ; plate, the same blue lettering -- so the two read as parts of one
-    ; desktop rather than two programs. Blue on light grey rather than
-    ; white: index 0 is transparent in the FOREGROUND as well, and white
-    ; on this plate is barely there. The selected row inverts, which is
-    ; the only place the eye needs to be drawn.
+    ; desktop rather than two programs. Blue, not white: index 0 is
+    ; transparent in the FOREGROUND as well, and white on this plate is
+    ; barely there.
     const ubyte A_PANEL = 6 | (15 << 4)   ; blue on light grey
     const ubyte A_BAR   = 6 | (15 << 4)   ; ...header and footer to match
     const ubyte A_SEL   = 15 | (6 << 4)   ; inverted: the cursor line
     const ubyte A_EDIT  = 6 | (15 << 4)   ; blue on light grey: a typing field
 
-    ubyte[64] curdir
+    str pk_all   = "*.*"
+    str pk_prg   = "*.prg"
+    str pk_head  = "programs in "
+    str pk_foot  = "double click opens/runs   right click adds   esc closes"
+    str pk_foot4 = "dbl-click runs  right adds  esc"
+
     ubyte[64] fullpath
     ; The file an "open with" launch hands to the program it starts.
     ; Kept apart from fullpath because both are needed at once: one says
@@ -957,330 +935,68 @@ main {
     ubyte[64] argfile
     bool hasarg = false
     ubyte[24] editbuf
-    ubyte[40] nm
-    ubyte nent
-    ubyte psel
-    ubyte ptop
-    bool  pdown                       ; the panel's own button tracking
-    uword plastck
-    ubyte plastidx
 
-    sub ent(ubyte i) -> uword {
-        uword a = i
-        a *= E_SIZE
-        return ENTRIES + a
-    }
-
-    ; Read the current directory into the cache: directories first, then
-    ; programs, then everything else -- three passes over the listing
-    ; rather than a sort.
-    ;
-    ; The third pass is what makes "open with" possible: a .bmx or a .csv
-    ; is not something the desktop can run, but it is something a program
-    ; already on the desktop can open, and the browser has to show it
-    ; before anyone can choose it. Data files are cached as DIR_TYPE_SEQ,
-    ; which the drive itself never reports for them (the host filesystem
-    ; calls everything PRG), so the marker is ours and unambiguous.
-    sub pick_read() {
-        nent = 0
-        ubyte pass = 0
-        while pass < 3 {
-            if cx.dir_open(0, 0, 8)
-                return
-            while cx.dir_next(&nm, len(nm)) {
-                ubyte t = cx.dir_type()
-                if t == x16c.DIR_TYPE_HOST {
-                    ; Nothing: the header line gives the path on an
-                    ; emulator's host filesystem but the VOLUME LABEL on a
-                    ; real card, so where we are is ours to remember. Read
-                    ; it from here and every program added from a
-                    ; subdirectory gets stored as if it were in the root.
-                } else if t == x16c.DIR_TYPE_NONE {
-                    ; Not a file. Two lines come back this way: the
-                    ; header, when the drive gives a volume label rather
-                    ; than a path (a real card does, an emulator's host
-                    ; filesystem does not -- which is why listing only
-                    ; programs never noticed), and the "BLOCKS FREE."
-                    ; trailer. Listing either put a row of raw directory
-                    ; bytes in the panel.
-                } else if nent < MAXENT {
-                    bool want = false
-                    ubyte kind = t
-                    if pass == 0 and t == x16c.DIR_TYPE_DIR {
-                        want = true
-                        if nm[0] == '.' and nm[1] == 0
-                            want = false        ; "." leads nowhere
-                    } else if pass == 1 and t == x16c.DIR_TYPE_PRG {
-                        want = is_prg(&nm)
-                    } else if pass == 2 and t != x16c.DIR_TYPE_DIR {
-                        want = not is_prg(&nm)  ; everything that is not one
-                        kind = x16c.DIR_TYPE_SEQ
-                    }
-                    if want {
-                        uword e = ent(nent)
-                        @(e + E_TYPE) = kind
-                        put_str(e + E_NAME, &nm, E_SIZE - 2)
-                        nent++
-                    }
-                }
-            }
-            cx.dir_close()
-            pass++
-        }
-    }
-
-    ; The X16's host filesystem reports every file as PRG -- source, text,
-    ; images, all of it -- so the type is no filter at all and the name has
-    ; to be. A program that does not end in .prg will not be offered, which
-    ; is the price of not listing the whole card.
-    sub is_prg(uword name) -> bool {
-        ubyte n = slen(name)
-        if n < 5
-            return false
-        uword t = name + n - 4
-        if @(t) != '.'
-            return false
-        ; The drive hands names back in ASCII ('b' is $62), while Prog8
-        ; encodes a lower-case letter in source as PETSCII $41-$5A -- the
-        ; same codes as ASCII CAPITALS. So 'p' here is $50, which is ASCII
-        ; 'P', and clearing bit 5 folds the drive's byte onto it whichever
-        ; case the card was written in. It is the same quirk that makes
-        ; filenames in this source lower-case on purpose.
-        ubyte c1 = @(t + 1) & $DF
-        ubyte c2 = @(t + 2) & $DF
-        ubyte c3 = @(t + 3) & $DF
-        return c1 == 'p' and c2 == 'r' and c3 == 'g'
-    }
-
-    ; curdir + "/" + name: what gets stored, and what gets run
-    sub make_path(uword name) {
-        ubyte n = 0
-        while curdir[n] != 0 and n < 40 {
-            fullpath[n] = curdir[n]
-            n++
-        }
-        if n > 0 and fullpath[n - 1] != '/' {
-            fullpath[n] = '/'
-            n++
-        }
-        ubyte k = 0
-        while @(name + k) != 0 and n < len(fullpath) - 1 {
-            fullpath[n] = @(name + k)
-            n++
-            k++
-        }
-        fullpath[n] = 0
-    }
-
-    sub pk_row(ubyte r, ubyte attr) {
-        cx.screen_addr(r, pk_left)
-        cx.screen_blitfill(pk_w, attr, ' ')
-    }
-
-    sub pick_draw() {
-        pk_row(PK_TOP, A_BAR)
-        cx.screen_addr(PK_TOP, pk_left + 1)
-        cx.screen_blit("programs in ", 12, A_BAR)
-        ubyte dn = slen(&curdir)      ; a deep path must not run off the bar
-        if dn > pk_w - 14
-            dn = pk_w - 14
-        cx.screen_blit(&curdir, dn, A_BAR)
-        cx.screen_addr(PK_TOP, pk_left + pk_w - 3)
-        cx.screen_blit(" x ", 3, 2 | (15 << 4))    ; click to close
-
-        ubyte r = 0
-        while r < pk_rows {
-            ubyte i = ptop + r
-            ubyte attr = A_PANEL
-            if i == psel
-                attr = A_SEL
-            pk_row(PK_TOP + 1 + r, attr)
-            if i < nent {
-                uword e = ent(i)
-                cx.screen_addr(PK_TOP + 1 + r, pk_left + 2)
-                if @(e + E_TYPE) == x16c.DIR_TYPE_DIR
-                    cx.screen_blit("[dir] ", 6, attr)
-                else if @(e + E_TYPE) == x16c.DIR_TYPE_SEQ
-                    cx.screen_blit("[dat] ", 6, attr)   ; data: open with
-                else
-                    cx.screen_blit("      ", 6, attr)
-                ; Clamped to the panel: a name is at most 38 bytes and
-                ; the panel is wider than that, but a row that ever did
-                ; run over wrapped around the screen and drew outside
-                ; the browser entirely.
-                ubyte nl = slen(e + E_NAME)
-                if nl > pk_w - 10
-                    nl = pk_w - 10
-                cx.screen_blit(e + E_NAME, nl, attr)
-            }
-            r++
-        }
-        pk_row(PK_TOP + 1 + pk_rows, A_BAR)
-        cx.screen_addr(PK_TOP + 1 + pk_rows, pk_left + 1)
+    sub pk_setup() {
+        filepick.cache($A400, CFGBANK)     ; the listing, beside the config
+        filepick.filter(&pk_all)
+        filepick.primary(&pk_prg)
+        filepick.style(A_PANEL, A_BAR, A_SEL)
+        filepick.heading(&pk_head)
         if hires
-            cx.screen_blit("double click opens/runs   right click adds   esc closes",
-                           55, A_BAR)
+            filepick.footing(&pk_foot)
         else
-            cx.screen_blit("dbl-click runs  right adds  esc", 31, A_BAR)
+            filepick.footing(&pk_foot4)
     }
 
-    sub pick_move(ubyte k) {
-        if k == $91 {                 ; up
-            if psel > 0
-                psel--
-        } else if k == $11 {          ; down
-            if psel + 1 < nent
-                psel++
-        } else if k == $13 {          ; home
-            psel = 0
-        }
-        if psel < ptop
-            ptop = psel
-        if psel >= ptop + pk_rows
-            ptop = psel - pk_rows + 1
+    ; The panel's geometry, asked of the module so the dialogs below
+    ; land inside it whatever screen we are on.
+    sub pk_row(ubyte r, ubyte attr) {
+        cx.screen_addr(r, filepick.panel_left())
+        cx.screen_blitfill(filepick.panel_width(), attr, ' ')
+    }
+
+    sub pk_left() -> ubyte {
+        return filepick.panel_left()
+    }
+
+    sub pk_w() -> ubyte {
+        return filepick.panel_width()
     }
 
     ; -> true when a program was chosen to run, with fullpath set
-    ; Where the panel is, kept by hand. ".." trims the last component,
-    ; anything else appends one.
-    sub descend(uword name) {
-        ubyte n = slen(&curdir)
-        if @(name) == '.' and @(name + 1) == '.' and @(name + 2) == 0 {
-            while n > 1 and curdir[n - 1] != '/'
-                n--
-            if n > 1
-                n--                   ; drop the separator too
-            if n == 0
-                n = 1
-            curdir[n] = 0
-            return
-        }
-        if n > 0 and curdir[n - 1] != '/' {
-            curdir[n] = '/'
-            n++
-        }
-        ubyte k = 0
-        while @(name + k) != 0 and n < len(curdir) - 1 {
-            curdir[n] = @(name + k)
-            n++
-            k++
-        }
-        curdir[n] = 0
-    }
-
     sub picker() -> bool {
-        psel = 0
-        ptop = 0
-        pick_layout()
-        curdir[0] = '/'               ; the desktop always starts us here
-        curdir[1] = 0
-        pick_read()
-        pdown = true                  ; the click that opened us is still held
-        plastidx = 255
-        while true {
-            pick_draw()
-            ubyte k = 0
-            ubyte act = 0
-            while k == 0 and act == 0 {
-                k = cx.key_get()
-                if k != 0
-                    break
-                ubyte pbtn = cx.mse_get()
-                uword pmx = peekw(x16c.X16_P0)
-                uword pmy = peekw(x16c.X16_P0 + 2)
-                ubyte phit = pbtn & 3         ; left (1) and right (2)
-                if phit != 0 {
-                    if not pdown {
-                        pdown = true
-                        ubyte pr = lsb(pmy >> 3)
-                        ubyte pc = lsb(pmx >> 3)
-                        if pr == PK_TOP and pc >= pk_left + pk_w - 3 {
-                            k = $1b   ; the x box closes, like ESC
-                        } else if pr > PK_TOP and pr <= PK_TOP + pk_rows {
-                            ubyte pli = pr - PK_TOP - 1
-                            if ptop + pli < nent {
-                                ubyte pidx = ptop + pli
-                                psel = pidx
-                                if phit & 2 != 0 {
-                                    ; RIGHT button: keep it. The other half
-                                    ; of the pair -- double click runs a
-                                    ; program, right click puts it on the
-                                    ; desktop -- so both live on the mouse
-                                    ; and neither needs the keyboard.
-                                    act = 3
-                                    plastidx = 255
-                                } else {
-                                    uword pnow = cx.clock_get_timer()
-                                    if pidx == plastidx and pnow - plastck < DBLCLICK {
-                                        act = 1       ; double click = enter
-                                        plastidx = 255
-                                    } else {
-                                        plastck = pnow
-                                        plastidx = pidx
-                                        act = 2       ; single click selects
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    pdown = false
-                }
+        pk_setup()
+        ubyte act = filepick.open()
+        while act == filepick.ALT {
+            ; right click, or 'a': keep it on the desktop. Only a
+            ; program can be kept -- an icon that cannot be launched
+            ; would be furniture.
+            if filepick.is_primary() {
+                put_str(&fullpath, filepick.path(), len(fullpath) - 1)
+                void add_dialog(filepick.name())
             }
-            if act == 2
-                continue
-            if act == 3 {
-                uword re = ent(psel)
-                if @(re + E_TYPE) == x16c.DIR_TYPE_PRG {
-                    make_path(re + E_NAME)
-                    void add_dialog(re + E_NAME)
-                }
-                pdown = true          ; do not re-read the same press
-                continue
-            }
-            if act == 1
-                k = $0d
-            if k == $1b or k == $03
-                return false
-            if k == $91 or k == $11 or k == $13 {
-                pick_move(k)
-            } else if nent != 0 {
-                uword e = ent(psel)
-                if k == $0d and @(e + E_TYPE) == x16c.DIR_TYPE_DIR {
-                    cx.dos_chdir(e + E_NAME, slen(e + E_NAME))
-                    descend(e + E_NAME)
-                    psel = 0
-                    ptop = 0
-                    pick_read()
-                } else if @(e + E_TYPE) == x16c.DIR_TYPE_PRG {
-                    if k == 'r' or k == $0d {
-                        make_path(e + E_NAME)
-                        return true
-                    }
-                    if k == 'a' {
-                        make_path(e + E_NAME)
-                        void add_dialog(e + E_NAME)
-                    }
-                } else if @(e + E_TYPE) == x16c.DIR_TYPE_SEQ {
-                    ; A data file cannot be run, but something already on
-                    ; the desktop can open it. Enter asks which, and then
-                    ; the program is what gets launched -- with the file
-                    ; handed to it through golden RAM.
-                    if k == $0d or k == 'o' {
-                        ubyte w = openwith_dialog(e + E_NAME)
-                        if w != 255 {
-                            make_path(e + E_NAME)      ; the data file
-                            put_str(&argfile, &fullpath, len(argfile) - 1)
-                            hasarg = true
-                            ; ...and now fullpath becomes the program
-                            put_str(&fullpath, rec_path(w), len(fullpath) - 1)
-                            return true
-                        }
-                    }
-                }
-            }
+            act = filepick.resume()
         }
-        return false
+        if act != filepick.PICK {
+            filepick.close()
+            return false
+        }
+        if filepick.is_primary() {
+            put_str(&fullpath, filepick.path(), len(fullpath) - 1)
+            filepick.close()
+            return true
+        }
+        ; A data file: which program should open it?
+        ubyte w = openwith_dialog(filepick.name())
+        if w == 255 {
+            filepick.close()
+            return false
+        }
+        put_str(&argfile, filepick.path(), len(argfile) - 1)
+        hasarg = true
+        put_str(&fullpath, rec_path(w), len(fullpath) - 1)
+        filepick.close()
+        return true
     }
 
     ; Name it and choose its icon. The name defaults to the program's own,
@@ -1313,7 +1029,7 @@ main {
         if not add_entry(&fullpath, &editbuf, ic)
             return false
         cfg_save()                    ; ...which goes to the root, so come
-        cx.dos_chdir(&curdir, slen(&curdir))   ; back to what we were browsing
+        cx.dos_chdir(filepick.dir(), slen(filepick.dir()))  ; back to the browsed dir
         return true
     }
 
@@ -1332,10 +1048,10 @@ main {
         while true {
             ubyte r = 0
             while r < rows + 2 {
-                pk_row(PK_TOP + 2 + r, A_BAR)
+                pk_row(filepick.panel_top() + 2 + r, A_BAR)
                 r++
             }
-            cx.screen_addr(PK_TOP + 2, pk_left + 2)
+            cx.screen_addr(filepick.panel_top() + 2, pk_left() + 2)
             cx.screen_blit("open ", 5, A_BAR)
             ubyte fn = slen(fname)
             if fn > 20
@@ -1350,9 +1066,9 @@ main {
                 ubyte attr = A_BAR
                 if i == sel
                     attr = A_SEL
-                cx.screen_addr(PK_TOP + 3 + i, pk_left + 2)
+                cx.screen_addr(filepick.panel_top() + 3 + i, pk_left() + 2)
                 cx.screen_blitfill(20, attr, ' ')
-                cx.screen_addr(PK_TOP + 3 + i, pk_left + 4)
+                cx.screen_addr(filepick.panel_top() + 3 + i, pk_left() + 4)
                 cx.screen_blit(rec_label(i), slen(rec_label(i)), attr)
                 i++
             }
@@ -1374,9 +1090,9 @@ main {
 
     sub ask_label(ubyte n) -> bool {
         while true {
-            pk_row(PK_TOP + 2, A_BAR)
-            pk_row(PK_TOP + 3, A_BAR)
-            cx.screen_addr(PK_TOP + 2, pk_left + 2)
+            pk_row(filepick.panel_top() + 2, A_BAR)
+            pk_row(filepick.panel_top() + 3, A_BAR)
+            cx.screen_addr(filepick.panel_top() + 2, pk_left() + 2)
             if hires
                 cx.screen_blit("name on the desktop (enter accepts, esc cancels):",
                                48, A_BAR)
@@ -1386,12 +1102,12 @@ main {
             ; whole trick behind the wallpaper -- and exactly wrong here:
             ; it cut a hole through the panel and let the photograph
             ; through the middle of the text being typed.
-            cx.screen_addr(PK_TOP + 3, pk_left + 2)
+            cx.screen_addr(filepick.panel_top() + 3, pk_left() + 2)
             cx.screen_blitfill(L_MAX + 2, A_EDIT, ' ')
-            cx.screen_addr(PK_TOP + 3, pk_left + 2)
+            cx.screen_addr(filepick.panel_top() + 3, pk_left() + 2)
             if n != 0
                 cx.screen_blit(&editbuf, n, A_EDIT)
-            cx.screen_addr(PK_TOP + 3, pk_left + 2 + n)
+            cx.screen_addr(filepick.panel_top() + 3, pk_left() + 2 + n)
             cx.screen_blit("_", 1, A_EDIT)
 
             ubyte k = cx.key_wait()
@@ -1419,11 +1135,11 @@ main {
     sub ask_icon() -> ubyte {
         ubyte sel = 0
         while true {
-            pk_row(PK_TOP + 2, A_BAR)
-            pk_row(PK_TOP + 3, A_BAR)
-            pk_row(PK_TOP + 4, A_BAR)
-            pk_row(PK_TOP + 5, A_BAR)
-            cx.screen_addr(PK_TOP + 2, pk_left + 2)
+            pk_row(filepick.panel_top() + 2, A_BAR)
+            pk_row(filepick.panel_top() + 3, A_BAR)
+            pk_row(filepick.panel_top() + 4, A_BAR)
+            pk_row(filepick.panel_top() + 5, A_BAR)
+            cx.screen_addr(filepick.panel_top() + 2, pk_left() + 2)
             if hires
                 cx.screen_blit("pick an icon (left/right, enter accepts, esc cancels):",
                                53, A_BAR)
@@ -1434,16 +1150,16 @@ main {
                 ubyte pitch = 4
                 if not hires
                     pitch = 3
-                ubyte c = pk_left + 2 + i * pitch
-                cx.screen_addr(PK_TOP + 3, c)
+                ubyte c = pk_left() + 2 + i * pitch
+                cx.screen_addr(filepick.panel_top() + 3, c)
                 cx.screen_blitfill(pitch - 1, pbar[i] | (pbar[i] << 4), ' ')
-                cx.screen_addr(PK_TOP + 4, c)
+                cx.screen_addr(filepick.panel_top() + 4, c)
                 cx.screen_blitfill(pitch - 1, pfill[i] | (pfill[i] << 4), ' ')
                 ; A pair of small arrows beside a chip is not enough to see
                 ; at a glance -- which of twelve is chosen has to be obvious
                 ; without hunting. So the choice gets a solid bar under it,
                 ; the full width of the chip.
-                cx.screen_addr(PK_TOP + 5, c)
+                cx.screen_addr(filepick.panel_top() + 5, c)
                 if i == sel
                     cx.screen_blitfill(pitch - 1, 6 | (6 << 4), ' ')   ; solid blue
                 else

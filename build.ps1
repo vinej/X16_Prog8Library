@@ -62,11 +62,24 @@ while ($queue.Count -gt 0) {
     foreach ($m in [regex]::Matches($text, 'cx\.([a-z_][a-z0-9_]*)\s*\(')) {
         [void]$called.Add($m.Groups[1].Value)
     }
-    # follow only the user's own local modules (in the program's directory);
-    # the wrapper package in x16lib\ and stdlib imports are not usage sites.
+    # Follow the user's own local modules (in the program's directory),
+    # and the hand-written shared ones that live beside the wrapper in
+    # x16lib\ -- filepick calls cx.dir_* and cx.mse_* on the program's
+    # behalf, and gates it needs would otherwise be left off.
+    #
+    # The GENERATED files are skipped on purpose: x16lib.p8 is where
+    # every cx.* routine is defined rather than called, so scanning it
+    # would turn on the whole library for every program and the
+    # pay-per-use build would stop paying.
+    $generated = @('x16lib', 'x16lib_const')
     foreach ($m in [regex]::Matches($text, '(?m)^\s*%import\s+([A-Za-z_][A-Za-z0-9_]*)')) {
-        $cand = Join-Path $progDir ($m.Groups[1].Value + ".p8")
-        if (Test-Path $cand) { $queue.Enqueue((Resolve-Path $cand).Path) }
+        $nm = $m.Groups[1].Value
+        $cand = Join-Path $progDir ($nm + ".p8")
+        if (Test-Path $cand) { $queue.Enqueue((Resolve-Path $cand).Path); continue }
+        if ($generated -notcontains $nm) {
+            $cand = Join-Path $lib ($nm + ".p8")
+            if (Test-Path $cand) { $queue.Enqueue((Resolve-Path $cand).Path) }
+        }
     }
 }
 
