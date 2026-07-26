@@ -22,6 +22,7 @@
 ; =====================================================================
 %import x16lib
 %import x16lib_const
+%import launcharg
 %zeropage dontuse         ; the library owns ZP $22-$31; keep Prog8 out of it
 
 main {
@@ -950,6 +951,11 @@ main {
 
     ubyte[64] curdir
     ubyte[64] fullpath
+    ; The file an "open with" launch hands to the program it starts.
+    ; Kept apart from fullpath because both are needed at once: one says
+    ; what to run, the other what to open.
+    ubyte[64] argfile
+    bool hasarg = false
     ubyte[24] editbuf
     ubyte[40] nm
     ubyte nent
@@ -966,11 +972,19 @@ main {
     }
 
     ; Read the current directory into the cache: directories first, then
-    ; programs, which is two passes over the listing rather than a sort.
+    ; programs, then everything else -- three passes over the listing
+    ; rather than a sort.
+    ;
+    ; The third pass is what makes "open with" possible: a .bmx or a .csv
+    ; is not something the desktop can run, but it is something a program
+    ; already on the desktop can open, and the browser has to show it
+    ; before anyone can choose it. Data files are cached as DIR_TYPE_SEQ,
+    ; which the drive itself never reports for them (the host filesystem
+    ; calls everything PRG), so the marker is ours and unambiguous.
     sub pick_read() {
         nent = 0
         ubyte pass = 0
-        while pass < 2 {
+        while pass < 3 {
             if cx.dir_open(0, 0, 8)
                 return
             while cx.dir_next(&nm, len(nm)) {
@@ -981,18 +995,30 @@ main {
                     ; real card, so where we are is ours to remember. Read
                     ; it from here and every program added from a
                     ; subdirectory gets stored as if it were in the root.
+                } else if t == x16c.DIR_TYPE_NONE {
+                    ; Not a file. Two lines come back this way: the
+                    ; header, when the drive gives a volume label rather
+                    ; than a path (a real card does, an emulator's host
+                    ; filesystem does not -- which is why listing only
+                    ; programs never noticed), and the "BLOCKS FREE."
+                    ; trailer. Listing either put a row of raw directory
+                    ; bytes in the panel.
                 } else if nent < MAXENT {
                     bool want = false
+                    ubyte kind = t
                     if pass == 0 and t == x16c.DIR_TYPE_DIR {
                         want = true
                         if nm[0] == '.' and nm[1] == 0
                             want = false        ; "." leads nowhere
                     } else if pass == 1 and t == x16c.DIR_TYPE_PRG {
                         want = is_prg(&nm)
+                    } else if pass == 2 and t != x16c.DIR_TYPE_DIR {
+                        want = not is_prg(&nm)  ; everything that is not one
+                        kind = x16c.DIR_TYPE_SEQ
                     }
                     if want {
                         uword e = ent(nent)
-                        @(e + E_TYPE) = t
+                        @(e + E_TYPE) = kind
                         put_str(e + E_NAME, &nm, E_SIZE - 2)
                         nent++
                     }
@@ -1074,9 +1100,18 @@ main {
                 cx.screen_addr(PK_TOP + 1 + r, pk_left + 2)
                 if @(e + E_TYPE) == x16c.DIR_TYPE_DIR
                     cx.screen_blit("[dir] ", 6, attr)
+                else if @(e + E_TYPE) == x16c.DIR_TYPE_SEQ
+                    cx.screen_blit("[dat] ", 6, attr)   ; data: open with
                 else
                     cx.screen_blit("      ", 6, attr)
-                cx.screen_blit(e + E_NAME, slen(e + E_NAME), attr)
+                ; Clamped to the panel: a name is at most 38 bytes and
+                ; the panel is wider than that, but a row that ever did
+                ; run over wrapped around the screen and drew outside
+                ; the browser entirely.
+                ubyte nl = slen(e + E_NAME)
+                if nl > pk_w - 10
+                    nl = pk_w - 10
+                cx.screen_blit(e + E_NAME, nl, attr)
             }
             r++
         }
@@ -1226,6 +1261,22 @@ main {
                         make_path(e + E_NAME)
                         void add_dialog(e + E_NAME)
                     }
+                } else if @(e + E_TYPE) == x16c.DIR_TYPE_SEQ {
+                    ; A data file cannot be run, but something already on
+                    ; the desktop can open it. Enter asks which, and then
+                    ; the program is what gets launched -- with the file
+                    ; handed to it through golden RAM.
+                    if k == $0d or k == 'o' {
+                        ubyte w = openwith_dialog(e + E_NAME)
+                        if w != 255 {
+                            make_path(e + E_NAME)      ; the data file
+                            put_str(&argfile, &fullpath, len(argfile) - 1)
+                            hasarg = true
+                            ; ...and now fullpath becomes the program
+                            put_str(&fullpath, rec_path(w), len(fullpath) - 1)
+                            return true
+                        }
+                    }
                 }
             }
         }
@@ -1264,6 +1315,61 @@ main {
         cfg_save()                    ; ...which goes to the root, so come
         cx.dos_chdir(&curdir, slen(&curdir))   ; back to what we were browsing
         return true
+    }
+
+    ; Which program should open this file? Only what is already on the
+    ; desktop is offered: those are the programs this machine is set up
+    ; for, and a list of every .prg on the card would be a worse question
+    ; than the one the user just answered by browsing. -> 255 if
+    ; cancelled, or if there is nothing on the desktop to choose from.
+    sub openwith_dialog(uword fname) -> ubyte {
+        if nicons == 0
+            return 255
+        ubyte sel = 0
+        ubyte rows = nicons
+        if rows > 8
+            rows = 8                  ; the panel is not a scrolling list
+        while true {
+            ubyte r = 0
+            while r < rows + 2 {
+                pk_row(PK_TOP + 2 + r, A_BAR)
+                r++
+            }
+            cx.screen_addr(PK_TOP + 2, pk_left + 2)
+            cx.screen_blit("open ", 5, A_BAR)
+            ubyte fn = slen(fname)
+            if fn > 20
+                fn = 20
+            cx.screen_blit(fname, fn, A_BAR)
+            if hires
+                cx.screen_blit("  with (up/down, enter, esc):", 29, A_BAR)
+            else
+                cx.screen_blit(" with:", 6, A_BAR)
+            ubyte i = 0
+            while i < rows {
+                ubyte attr = A_BAR
+                if i == sel
+                    attr = A_SEL
+                cx.screen_addr(PK_TOP + 3 + i, pk_left + 2)
+                cx.screen_blitfill(20, attr, ' ')
+                cx.screen_addr(PK_TOP + 3 + i, pk_left + 4)
+                cx.screen_blit(rec_label(i), slen(rec_label(i)), attr)
+                i++
+            }
+            ubyte k = cx.key_wait()
+            if k == $0d
+                return sel
+            if k == $1b or k == $03
+                return 255
+            if k == $91 {                       ; up
+                if sel > 0
+                    sel--
+            } else if k == $11 {                ; down
+                if sel + 1 < rows
+                    sel++
+            }
+        }
+        return 255
     }
 
     sub ask_label(ubyte n) -> bool {
@@ -1456,6 +1562,16 @@ main {
     }
 
     sub launch_path(uword path) {
+        ; The launch argument is set per launch or not at all. Clearing
+        ; it first means a program can never inherit the file some
+        ; earlier launch passed to something else -- golden RAM keeps
+        ; whatever was last written there, and a stale path would be
+        ; opened without anyone having asked for it.
+        launcharg.clear()
+        if hasarg {
+            launcharg.set(&argfile, slen(&argfile))
+            hasarg = false
+        }
         split_path(path, slen(path))
         if folder[0] != 0
             cx.dos_chdir(&folder, slen(&folder))

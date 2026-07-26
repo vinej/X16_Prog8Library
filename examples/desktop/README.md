@@ -93,10 +93,41 @@ flashes happen inside the other program.
 ## Putting programs on it
 
 `p` opens a picker: a directory browser over the wallpaper, directories
-first, then anything ending in `.prg`. Enter descends into a directory,
-`..` climbs back out. It wears the title bar's colours — blue on the
-same light grey plate, the selected row inverted — so the two read as
-parts of one desktop rather than two programs.
+first, then anything ending in `.prg`, then everything else marked
+`[dat]`. Enter descends into a directory, `..` climbs back out. It wears
+the title bar's colours — blue on the same light grey plate, the
+selected row inverted — so the two read as parts of one desktop rather
+than two programs.
+
+## Opening a file with a program
+
+A `.bmx` or a `.csv` is not something the desktop can run, but it is
+something a program on the desktop can open. Enter on a `[dat]` row asks
+**which** — a short list of the icons you already have — and then that
+program is what gets launched, with the file handed to it.
+
+The handoff is `x16lib/launcharg.p8`: the path goes in golden RAM at
+`$0500` behind a magic, and the program reads it with `launcharg.get()`
+on the way in. It is the X16's missing `argv`, in about forty lines.
+
+This is deliberately *not* a file dialog inside every program. One
+browser, in the launcher, means the same keys and the same look
+everywhere, and a program that only needs a file at startup — imgview,
+kalk — needs no browser of its own at all. A program that wants to
+browse *while running* still would, and that is when the picker is worth
+extracting into a module.
+
+Two things a launcher must get right, both learned the hard way:
+
+* **Clear it when passing nothing.** Golden RAM keeps what the last
+  program left there, so without a clear the second launch of a program
+  inherits the file the first one was given. `launch_path` clears before
+  every launch and sets only when there is something to set.
+* **Do not trust the header line's type.** The picker skips
+  `DIR_TYPE_NONE` entries because a real card reports its volume label
+  that way, while an emulator's host filesystem reports a path as
+  `DIR_TYPE_HOST`. Listing programs only, that difference never showed;
+  listing everything, it put a row of raw directory bytes on screen.
 
 On a program it offers two things, and the cheap one matters most:
 

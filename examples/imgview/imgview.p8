@@ -13,6 +13,7 @@
 
 %import x16lib
 %import x16lib_const
+%import launcharg
 %zeropage basicsafe
 
 main {
@@ -22,8 +23,19 @@ main {
 
     sub start() {
         cx.load_banks()                 ; no-op unless modules were -Bank'd
+        ; A launcher can say which picture to show: the desktop's "open
+        ; with" leaves the path in golden RAM and launcharg.get() hands
+        ; it back. Nothing passed -- run from BASIC, or from a launcher
+        ; that knows nothing about the convention -- and the old default
+        ; still applies, so this stays a program you can just RUN.
+        uword name = launcharg.get()
+        ubyte n = launcharg.length()
+        if name == 0 {
+            name = &filename
+            n = len(filename)
+        }
         cx.gfx8h_init()                 ; 640x480 @ 8bpp (needs VERA_2 / -bitmap2)
-        cx.bmx_load_hires(&filename, len(filename), 8)
+        cx.bmx_load_hires(name, n, 8)
         while true {                    ; ESC leaves; other keys are ignored
             ubyte k = cx.key_wait()      ; so a stray press cannot dismiss it
             if k == $1B or k == $03

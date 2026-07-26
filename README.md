@@ -232,6 +232,43 @@ command reference, the formula syntax, how it maps onto the library, and the
 two Prog8 pitfalls it ran into (zero-page collisions with `X16_P0..P7`, and
 static locals in a recursive parser).
 
+## `launcharg` — telling a program which file to open
+
+The X16 has no `argv`. A program launched from a desktop or a shell knows only
+its own name, so anything that wanted to open a particular file had to ask for
+it again — which is why a file browser kept wanting to be copied into every
+program that reads files.
+
+`x16lib/launcharg.p8` is the cheaper answer: the launcher leaves the path in
+golden RAM, and the program picks it up on the way in.
+
+```prog8
+%import launcharg
+
+; in the launcher
+launcharg.set(&path, n)          ; ...then load and run the program
+
+; in the program
+uword p = launcharg.get()        ; 0 when nothing was passed
+if p != 0
+    open_that(p)
+else
+    use_a_default()
+```
+
+`$0500`–`$057F`: a two-byte magic, a length, then the NUL-terminated path.
+Golden RAM is the block the KERNAL and BASIC leave alone and a PRG at `$0801`
+does not cover, so it survives both the LOAD and the launch. The magic matters
+because golden RAM holds whatever the last program left there — a launcher that
+passes nothing must call `launcharg.clear()`, which the desktop does before
+every launch.
+
+The desktop drives it from the browser: on a data file, Enter asks **which of
+the programs on the desktop** should open it. `examples/imgview` shows the
+picture it was handed and falls back to `image.bmx` otherwise; `examples/kalk`
+loads the sheet it was handed and starts empty otherwise. Both still run
+standalone from BASIC, unchanged.
+
 ## The call ABI
 
 The wrappers mirror the library's conventions exactly:

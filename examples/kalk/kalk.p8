@@ -17,6 +17,7 @@
 ; =====================================================================
 %import x16lib
 %import x16lib_const
+%import launcharg
 %import kalkcore
 %zeropage dontuse         ; the library owns ZP $22-$31; keep Prog8 out of it
 
@@ -1392,6 +1393,30 @@ main {
         setcol(C_FG, C_BG)
         cx.screen_cls()
         needfull = true
+
+        ; A launcher can name the sheet to open: the desktop's "open
+        ; with" leaves the path in golden RAM. Loading it here rather
+        ; than making the user retype a name they just picked is the
+        ; whole point of the convention -- and with nothing passed this
+        ; starts on an empty sheet exactly as it always did.
+        uword argp = launcharg.get()
+        if argp != 0 {
+            ubyte argn = launcharg.length()
+            if argn > len(fname)
+                argn = len(fname)
+            ubyte ai = 0
+            while ai < argn {
+                fname[ai] = @(argp + ai)
+                ai++
+            }
+            fnlen = argn
+            if not csv_load() {
+                fnlen = 0             ; unreadable: say so, start empty
+                io_fail()
+            } else {
+                dirty = false
+            }
+        }
 
         ubyte oc = 0
         ubyte orow = 0
