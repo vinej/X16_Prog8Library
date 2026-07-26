@@ -56,6 +56,7 @@ main {
     ubyte tr
     bool  dirty
     bool  needfull
+    bool  blanked = true                ; layer 1 is off until the first draw
     uword modez
 
     ubyte[80] linebuf
@@ -1367,8 +1368,19 @@ main {
 
     sub start() {
         cx.load_banks()
-        void cx.screen_set_mode(0)          ; 80x60 text
+        ; Setting the mode blanks and clears the screen on its way through,
+        ; and a launcher has usually left mode 0 behind already: ask first,
+        ; and starting from the desktop costs one flash less.
+        if cx.screen_get_mode() != 0
+            void cx.screen_set_mode(0)      ; 80x60 text
         cx.screen_charset(3)                ; PET upper/lower: both cases visible
+        ; Build the first screen in the dark. Clearing, colouring and then
+        ; painting 60 rows is several whole-screen changes if it happens in
+        ; front of you, and coming from a launcher that is most of the
+        ; flicker between one program and the next. The layer comes back on
+        ; below, once there is a finished sheet to show.
+        @(x16c.VERA_CTRL) = 0
+        @(x16c.VERA_DC_VIDEO) &= ~x16c.VERA_VIDEO_LAYER1_EN
         ; MOUSE_CONFIG with a size of 0 keeps whatever bounds are already
         ; set, and on a fresh boot there are none -- so give it the real
         ; screen, 80x60 cells of 8 pixels, or the pointer never appears.
@@ -1405,6 +1417,11 @@ main {
             if needfull {
                 draw_all()
                 needfull = false
+                if blanked {            ; the first sheet is complete: show it
+                    blanked = false
+                    @(x16c.VERA_CTRL) = 0
+                    @(x16c.VERA_DC_VIDEO) |= x16c.VERA_VIDEO_LAYER1_EN
+                }
             } else if scrolled {
                 draw_gutters()
                 if vr > pvr

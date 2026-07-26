@@ -44,8 +44,16 @@ main {
     const ubyte IVBANK = 1            ; ...at $14000, clear of the KERNAL
     const ubyte IW     = 32           ; icons are 32x32
     const uword IBYTES = 512          ; ...so 512 bytes of 4bpp pixels
-    const ubyte SCRW   = 79
+    const ubyte SCRW   = 80           ; the full width: the last cell used to
+                                      ; be left out, which an opaque backdrop
+                                      ; hid and a transparent one does not
     const ubyte SCRH   = 60
+
+    ; The wallpaper is 640x480 at 8bpp on the VERA_2 layer: 307,200 bytes,
+    ; which is why it lives in that board's own SDRAM rather than in VRAM,
+    ; where it would not fit. Its palette is independent of VERA's, so it
+    ; cannot disturb the 16 colours the text layer draws with.
+    str wall = "wall.bmx"
 
     str[] files = ["kalk.prg", "imgview.prg", "hello.prg", "child.prg"]
     str[] labels = ["Kalk", "Image", "Hello", "Child"]
@@ -102,17 +110,25 @@ main {
         cx.load_banks()
         ; Do not trust what ran before us: a program that left the VERA_2
         ; bitmap on would hide this whole desktop behind it.
-        cx.gfx8h_off()
-        void cx.screen_set_mode(0)
+        cx.gfx8h_off()                ; whatever ran before us may have left it on
+        ; Reprogramming the display is the one step that cannot be hidden --
+        ; it blanks and clears the screen on its way through. A program that
+        ; tidied up after itself has already left mode 0 behind, so ask
+        ; before setting it and the common return costs nothing.
+        if cx.screen_get_mode() != 0
+            void cx.screen_set_mode(0)
+        blank()                       ; nothing shows until the desktop is whole
         cx.screen_charset(3)
         load_positions()
         make_icons()
         paint()
         cx.sprites_on()
+        reveal()                      ; ...and only now does any of it show
         cx.mse_config(1, 80, 60)      ; the pointer needs real bounds
         run()
         cx.mse_hide()
         cx.sprites_off()
+        cx.gfx8h_off()
         cx.screen_reset()
     }
 
@@ -206,10 +222,40 @@ main {
         }
     }
 
-    ; the backdrop, the title bar, and a caption under every icon
+    ; the wallpaper, the title bar, and a caption under every icon
     sub paint() {
-        ubyte attr_desk = 6 | (6 << 4)        ; blue on blue
-        ubyte attr_bar  = 0 | (15 << 4)       ; black on light grey
+        ; With the VERA_2 layer in PASSTHRU, VERA's opaque pixels draw over
+        ; the bitmap and the bitmap fills in wherever VERA is transparent.
+        ; Background colour 0 is transparent, so a cell painted with it is
+        ; a window onto the photograph: the text layer stops being a
+        ; backdrop and becomes a sheet of glass with writing on it. The
+        ; sprites ride over the top on the same rule, for free.
+        ;
+        ; Without the layer there is no photograph to show through to, so
+        ; the desktop paints its old blue backdrop and looks as it always
+        ; did. Everything below here is identical either way.
+        ;
+        ; The layer stays DARK through all of this. bmx_load_hires never
+        ; touches CTRL, so 307 KB can stream into SDRAM unseen while the
+        ; text is drawn on top of nothing; reveal() then turns the whole
+        ; desktop on in a single register write. Enabling it first meant
+        ; watching the previous contents flash up, the new photograph
+        ; wipe down over them, and the text land last.
+        ubyte attr_desk = 6 | (6 << 4)
+        havewall = false
+        if cx.gfx8h_has() {
+            ; bmx_load_hires reports failure as carry + an error code in A,
+            ; which the wrapper generator will not guess a type for, so a
+            ; missing file shows as a black backdrop rather than an error.
+            cx.bmx_load_hires(&wall, len(wall), 8)
+            havewall = true
+            attr_desk = 1 | (0 << 4)
+        }
+        backdrop = attr_desk
+        ; Blue on light grey, not black: index 0 is transparent in the
+        ; FOREGROUND as well, so black lettering would be cut out of the
+        ; title bar and show the photograph through the strokes.
+        ubyte attr_bar  = 6 | (15 << 4)
         ubyte r = 0
         while r < SCRH {
             cx.screen_addr(r, 0)
@@ -219,12 +265,43 @@ main {
         cx.screen_addr(0, 0)
         cx.screen_blit(&title, len(title), attr_bar)
         cx.screen_blitfill(SCRW - len(title), attr_bar, ' ')
+        captions()
+        place_all()
+    }
+
+    ; Blank and reveal. The desktop is rebuilt from nothing on every entry
+    ; -- mode, charset, sprite pixels, 307 KB of photograph, then all the
+    ; text -- and doing that on a live screen is what the flicker was: a
+    ; mode change, a clear, a backdrop, captions arriving one by one. So
+    ; the text layer goes off first and comes back with the bitmap, and
+    ; the whole desktop appears in a single frame instead of assembling
+    ; itself in front of you.
+    sub blank() {
+        @(x16c.VERA_CTRL) = 0             ; DCSEL 0: DC_VIDEO is visible here
+        @(x16c.VERA_DC_VIDEO) &= ~x16c.VERA_VIDEO_LAYER1_EN
+    }
+
+    ; One write, one frame: enable + 8bpp + passthru together. gfx8h_init
+    ; is no use here -- it reloads a grayscale palette, which would throw
+    ; away the one the photograph just brought with it.
+    sub reveal() {
+        if havewall
+            @(x16c.VERA2_CTRL) = x16c.VERA2_CTRL_ENABLE |
+                                 x16c.VERA2_CTRL_MODE_8BPP |
+                                 x16c.VERA2_CTRL_PASSTHRU
+        @(x16c.VERA_CTRL) = 0
+        @(x16c.VERA_DC_VIDEO) |= x16c.VERA_VIDEO_LAYER1_EN
+    }
+
+    ; Every caption, which is what a drop needs: blanking the dragged
+    ; label at press can clip a neighbour's if the two overlapped, and
+    ; redrawing the moved one alone would leave that damage on screen.
+    sub captions() {
         ubyte i = 0
         while i < NICON {
             caption(i)
             i++
         }
-        place_all()
     }
 
     ; Where an icon's caption goes: centred on the icon, on the first text
@@ -234,6 +311,8 @@ main {
     ubyte caprow
     ubyte capcol
     ubyte caplen
+    ubyte backdrop = 6 | (6 << 4)     ; what a blanked cell goes back to
+    bool  havewall                    ; is there a photograph behind us?
 
     sub caption_pos(ubyte i) -> bool {
         caplen = slen(labels[i])
@@ -255,11 +334,13 @@ main {
         return true
     }
 
+    ; White on dark grey rather than on the wallpaper: a label plate. Over
+    ; a photograph, white text on transparent is a coin toss.
     sub caption(ubyte i) {
         if not caption_pos(i)
             return
         cx.screen_addr(caprow, capcol)
-        cx.screen_blit(labels[i], caplen, 1 | (6 << 4))
+        cx.screen_blit(labels[i], caplen, 1 | (11 << 4))
     }
 
     ; blank a caption where it currently is, so a drag can redraw it
@@ -267,7 +348,7 @@ main {
         if not caption_pos(i)
             return
         cx.screen_addr(caprow, capcol)
-        cx.screen_blitfill(caplen, 6 | (6 << 4), ' ')
+        cx.screen_blitfill(caplen, backdrop, ' ')
     }
 
 
@@ -320,7 +401,7 @@ main {
                     if drag != 255 {
                         drag = 255
                         save_positions()
-                        paint()               ; captions follow the icons
+                        captions()            ; the label reappears, moved
                     }
                 }
             }
@@ -345,6 +426,7 @@ main {
         drag = i
         dragdx = mx - ix[i]
         dragdy = my - iy[i]
+        uncaption(i)              ; no label while it moves; back on release
     }
 
     sub moveto(uword mx, uword my) {
@@ -362,10 +444,8 @@ main {
             ny = 8                            ; keep clear of the title bar
         if nx == ix[drag] and ny == iy[drag]
             return                    ; nothing moved, leave the screen alone
-        uncaption(drag)               ; rub the label out where it was...
         ix[drag] = nx
         iy[drag] = ny
-        caption(drag)                 ; ...and put it back under the icon
         cx.sprite_pos(drag + 1, nx, ny)
     }
 
@@ -397,9 +477,14 @@ main {
         pokew(CHILDVEC, centry)
         pokew(SELFVEC, cx.fs_prg_entry(&self, len(self), 8))
 
-        ; leave the screen as the child expects to find it
+        ; Leave the screen as the child expects to find it -- which means
+        ; the wallpaper goes too. Under passthru, background colour 0 is
+        ; transparent, and colour 0 is what an ordinary program draws on:
+        ; kalk's row headers came up with the photograph showing through
+        ; the black behind them. A launched program gets a plain machine.
         cx.mse_hide()
         cx.sprites_off()
+        cx.gfx8h_off()
         cx.screen_reset()
 
         ubyte k = 0

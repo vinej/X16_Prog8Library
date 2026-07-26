@@ -192,6 +192,22 @@ cx.gfx8h_init()                                   ; 640x480 @ 8bpp (needs -bitma
 cx.bmx_load_hires(&filename, len(filename), 8)    ; palette + 307 KB of pixels, one call
 ```
 
+`--lores` targets the other 8bpp bitmap instead: 320x240 on VERA layer 0, which
+the KERNAL's screen mode `$80` pairs with a 40x30 text layer, so text can sit
+*over* the image. That is the way to get a background on a **stock** X16, where
+there is no VERA_2 layer and VRAM cannot hold a 640x480 image at more than 2bpp.
+Its palette is quantized to 240 colours placed at index 16, leaving alone the 16
+system colours the text layer draws with — get that wrong and the background
+repaints every character on screen.
+
+`examples/desktop/` does not need it: with a VERA_2 layer present it puts a full
+640x480 photograph behind the text and sprites using **passthru**, whose palette
+is separate from VERA's entirely.
+
+```powershell
+python tools\img2bmx.py photo.jpg build\WALL.BMX --lores --stretch
+```
+
 The 307 KB of image data never touches main RAM — it streams straight from disk
 into VERA_2 SDRAM, so the program stays ~3 KB. `cx.bmx_load_hires` requires
 X16_Library ≥ v0.11.6. (Filenames are lowercase in the source on purpose — Prog8's

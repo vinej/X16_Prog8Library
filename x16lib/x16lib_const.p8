@@ -51,6 +51,14 @@ x16c {
     const uword CONSOLE_PUT_CHAR = $FEDE
     const uword CONSOLE_PUT_IMAGE = $FED8
     const uword CONSOLE_SET_PAGING_MESSAGE = $FED5
+    const ubyte DIR_LFN = $3
+    const ubyte DIR_TYPE_DIR = $5
+    const ubyte DIR_TYPE_HOST = $6
+    const ubyte DIR_TYPE_NONE = $0
+    const ubyte DIR_TYPE_PRG = $1
+    const ubyte DIR_TYPE_REL = $4
+    const ubyte DIR_TYPE_SEQ = $2
+    const ubyte DIR_TYPE_USR = $3
     const ubyte DOS_CMD_MAX = $50
     const ubyte DOS_MSG_MAX = $40
     const uword ENTER_BASIC = $FF47

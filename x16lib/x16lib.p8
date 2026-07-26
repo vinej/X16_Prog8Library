@@ -8454,6 +8454,117 @@ cx {
         return ret16
     }
 
+    ; storage/dir a length of 0 asks for the current directory; -> carry set = failed
+    sub dir_open(uword path, ubyte len_, ubyte device) -> bool {
+        %asm {{
+        .if BANK_X16_USE_DIR
+            lda $00
+            pha
+            lda #BANK_X16_USE_DIR
+            sta $00
+        .endif
+            lda p8v_path
+            sta $22
+            lda p8v_path+1
+            sta $23
+            lda p8v_len_
+            sta $24
+            lda p8v_device
+            sta $25
+            jsr x16src.dir_open
+            lda #0
+            rol  a
+            sta p8v_retbit
+        .if BANK_X16_USE_DIR
+            pla
+            sta $00
+        .endif
+        }}
+        return retbit
+    }
+
+    ; -> carry SET = an entry was read, CLEAR at the end of the listing
+    sub dir_next(uword buf, ubyte size) -> bool {
+        %asm {{
+        .if BANK_X16_USE_DIR
+            lda $00
+            pha
+            lda #BANK_X16_USE_DIR
+            sta $00
+        .endif
+            lda p8v_buf
+            sta $22
+            lda p8v_buf+1
+            sta $23
+            lda p8v_size
+            sta $24
+            jsr x16src.dir_next
+            lda #0
+            rol  a
+            sta p8v_retbit
+        .if BANK_X16_USE_DIR
+            pla
+            sta $00
+        .endif
+        }}
+        return retbit
+    }
+
+    ; -> A = DIR_TYPE_PRG / _DIR / _HOST / ... for the entry just read
+    sub dir_type() -> ubyte {
+        %asm {{
+        .if BANK_X16_USE_DIR
+            lda $00
+            pha
+            lda #BANK_X16_USE_DIR
+            sta $00
+        .endif
+            jsr x16src.dir_type
+            sta p8v_ret8
+        .if BANK_X16_USE_DIR
+            pla
+            sta $00
+        .endif
+        }}
+        return ret8
+    }
+
+    ; -> X/Y = the block count for the entry just read
+    sub dir_blocks() -> uword {
+        %asm {{
+        .if BANK_X16_USE_DIR
+            lda $00
+            pha
+            lda #BANK_X16_USE_DIR
+            sta $00
+        .endif
+            jsr x16src.dir_blocks
+            stx p8v_ret16
+            sty p8v_ret16+1
+        .if BANK_X16_USE_DIR
+            pla
+            sta $00
+        .endif
+        }}
+        return ret16
+    }
+
+    sub dir_close() {
+        %asm {{
+        .if BANK_X16_USE_DIR
+            lda $00
+            pha
+            lda #BANK_X16_USE_DIR
+            sta $00
+        .endif
+            jsr x16src.dir_close
+        .if BANK_X16_USE_DIR
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
     ; storage/dos -> A = status code
     sub dos_cmd(uword cmd, ubyte len_) -> ubyte {
         %asm {{
@@ -8467,6 +8578,25 @@ cx {
             ldx p8v_cmd+1
             ldy p8v_len_
             jsr x16src.dos_cmd
+            sta p8v_ret8
+        .if BANK_X16_USE_DOS
+            pla
+            sta $00
+        .endif
+        }}
+        return ret8
+    }
+
+    ; -> A = the status code from the last dos_* call
+    sub dos_lasterr() -> ubyte {
+        %asm {{
+        .if BANK_X16_USE_DOS
+            lda $00
+            pha
+            lda #BANK_X16_USE_DOS
+            sta $00
+        .endif
+            jsr x16src.dos_lasterr
             sta p8v_ret8
         .if BANK_X16_USE_DOS
             pla
