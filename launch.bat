@@ -17,7 +17,10 @@ rem =====================================================================
 setlocal
 set HERE=%~dp0
 set IMG=%HERE%x16_rc3.img
-set EMU=%HERE%emulator\x16emu.exe
+rem x16emuw.exe is the same emulator with no console window -- the one to
+rem run once things work. Swap in x16emu.exe when you want the console
+rem back: that is where -log output and start-up errors go.
+set EMU=%HERE%emulator\x16emuw.exe
 
 if not exist "%IMG%" (
     echo launch: %IMG% not found
@@ -45,10 +48,14 @@ if /i "%~1"=="-sync" goto :done
 rem -bitmap2 is what puts the wallpaper behind the text; without it the
 rem desktop still runs, it just falls back to a plain blue backdrop.
 rem echo Starting the emulator ...
-rem The SD trace is off unless asked for: add -log D to see every command
-rem and sector the card handles. It is worth knowing that it slows loading
-rem badly, so leave it off unless a load is misbehaving.
-"%EMU%" -rom "%HERE%emulator\rom.bin" -bitmap2 -sdcard "%IMG%" ^
+rem The SD trace is off unless asked for: add -log D (and switch EMU to
+rem x16emu.exe, which has a console to print it in) to see every command
+rem and sector the card handles. It slows loading badly, so leave it off
+rem unless a load is misbehaving.
+rem
+rem start, so this window closes instead of sitting there for as long as
+rem the emulator runs.
+start "" "%EMU%" -rom "%HERE%emulator\rom.bin" -bitmap2 -sdcard "%IMG%" ^
         -prg "%HERE%build\desktop.prg" -run
 
 :done

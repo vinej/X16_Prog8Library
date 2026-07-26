@@ -35,6 +35,9 @@ if /i "%~1"=="-sync" (
 
 rem -bitmap2 gives the 640x480 wallpaper; drop it and the desktop runs the
 rem 320x240 screen instead, which any stock X16 can do.
-"%HERE%emulator\x16emu.exe" -rom "%HERE%emulator\rom.bin" -bitmap2 ^
+rem
+rem x16emuw.exe is the console-less build; swap in x16emu.exe when you
+rem want -log output. start, so this window does not linger.
+start "" "%HERE%emulator\x16emuw.exe" -rom "%HERE%emulator\rom.bin" -bitmap2 ^
         -cart "%HERE%build\desktop.crt" -sdcard "%IMG%"
 endlocal
