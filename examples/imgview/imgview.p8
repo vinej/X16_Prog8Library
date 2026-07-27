@@ -20,7 +20,8 @@
 ; 320x240 wallpaper (wallo.bmx) covers the top-left quarter and is
 ; meant to -- it is the picture for a machine with no VERA_2 board.
 ;
-; Press O to open another, ESC to leave. Returning rather than looping
+; Press O -- or click [files] in the top right corner -- to open
+; another, ESC to leave. Returning rather than looping
 ; forever is what lets examples\desktop launch this and get control back.
 ;
 ; %zeropage dontuse is not optional: the library owns ZP $22-$31 and
@@ -48,6 +49,8 @@ main {
     str heading  = "pictures in "
     str footing  = "double click opens   esc closes"
     ubyte[64] picked                ; the path, copied out of the browser
+    str btntext  = "[files]"
+    const ubyte BTNW = 7
 
     sub start() {
         cx.load_banks()                 ; no-op unless modules were -Bank'd
@@ -65,50 +68,78 @@ main {
         cx.gfx8h_init()                 ; 640x480 @ 8bpp (needs VERA_2 / -bitmap2)
         cx.bmx_load_hires(name, n, 8)
 
+        ; The text layer stays ON over the picture, in PASSTHRU. Every
+        ; cell is painted with background 0, which is transparent, so
+        ; the photograph shows through all of it except the one place
+        ; something is drawn: the button. That is the same arrangement
+        ; the desktop uses for its wallpaper, and it is what lets a
+        ; mouse have anything to click on.
+        cx.screen_charset(3)
+        cx.gfx8h_passthru_on()
+        @(x16c.VERA_CTRL) = 0
+        @(x16c.VERA_DC_VIDEO) |= x16c.VERA_VIDEO_LAYER1_EN
+        clear_glass()
+        draw_button()
+        cx.mse_config(1, 80, 60)        ; the KERNAL pointer, over the picture
+
+        bool down = false
         while true {
-            ubyte k = cx.key_wait()     ; a stray press cannot dismiss it
+            ubyte k = cx.key_get()
             if k == $1B or k == $03
                 break
             if k == 'o' or k == 'O' {
-                if browse()
-                    break               ; the browser failed to give us one
+                browse()
+                continue
+            }
+            ubyte btn = cx.mse_get()
+            uword mx = peekw(x16c.X16_P0)
+            uword my = peekw(x16c.X16_P0 + 2)
+            if btn & 1 != 0 {
+                if not down {
+                    down = true
+                    ; the button lives in the top right corner
+                    if my < 8 and mx >= (80 - BTNW) * 8 {
+                        browse()
+                        down = true     ; the opening click is spent
+                    }
+                }
+            } else {
+                down = false
             }
         }
+        cx.mse_hide()
         cx.gfx8h_off()                  ; CINT restores the primary VERA only,
         cx.screen_reset()               ; so drop the VERA_2 bitmap ourselves
     }                                   ; or it hides whatever comes next
+
+    ; Every cell transparent: background 0 is a window onto the bitmap.
+    sub clear_glass() {
+        ubyte r = 0
+        while r < 60 {
+            cx.screen_addr(r, 0)
+            cx.screen_blitfill(80, 1 | (0 << 4), ' ')
+            r++
+        }
+    }
+
+    sub draw_button() {
+        cx.screen_addr(0, 80 - BTNW)
+        cx.screen_blit(&btntext, BTNW, 6 | (15 << 4))   ; blue on light grey
+    }
 
     ; Pick another picture and show it. -> true if the user asked to
     ; leave from inside the browser (Run/Stop), which the caller honours
     ; rather than swallowing.
     sub browse() -> bool {
-        ; The panel is drawn on the text layer, which imgview keeps
-        ; switched off -- a photograph with a READY prompt over it is not
-        ; a photograph. Turning it back on is not enough on its own:
-        ; without PASSTHRU the VERA_2 bitmap covers VERA completely and
-        ; the panel is drawn where nobody can see it. Passthru lets
-        ; VERA's opaque pixels through, which is exactly the arrangement
-        ; the desktop uses for its wallpaper.
-        cx.screen_cls()
-        @(x16c.VERA_CTRL) = 0
-        @(x16c.VERA_DC_VIDEO) |= x16c.VERA_VIDEO_LAYER1_EN
-        cx.gfx8h_passthru_on()
-
         cx.fp_filter(&pattern)
         cx.fp_heading(&heading)
         cx.fp_footing(&footing)
         cx.fp_cache($2000, 1)         ; the listing: VRAM $12000
         ubyte act = cx.fp_open()
         cx.fp_close()
-
-        ; Off again, and cleared, so nothing of the panel survives over
-        ; the picture. cls before the layer goes dark, or the old text
-        ; flashes up the next time it is turned on.
-        cx.screen_cls()
-        cx.gfx8h_passthru_off()
-        @(x16c.VERA_CTRL) = 0
-        @(x16c.VERA_DC_VIDEO) &= ~x16c.VERA_VIDEO_LAYER1_EN
-
+        clear_glass()                 ; the panel leaves the glass dirty
+        draw_button()
+        cx.mse_config(1, 80, 60)
         if act != FPK_PICK
             return false
         ; Copy the path out rather than following a pointer into the
