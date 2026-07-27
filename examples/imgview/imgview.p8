@@ -26,10 +26,16 @@
 %import x16lib
 %import x16lib_const
 %import launcharg
-%import filepick
 %zeropage dontuse
 
 main {
+    ; The browser's answers, from the library's ui/filepick.asm. They are
+    ; not in x16lib_const because the fixed-size blob cannot carry a 3 KB
+    ; browser, and that is where the generated constants come from.
+    const ubyte FPK_NONE = 0
+    const ubyte FPK_PICK = 1
+    const ubyte FPK_ALT  = 2
+
     ; lowercase on purpose: Prog8's PETSCII maps a-z to $41-$5A, which the
     ; KERNAL/host filesystem reads as the UPPER-CASE name IMAGE.BMX.
     str filename = "image.bmx"
@@ -82,11 +88,12 @@ main {
         @(x16c.VERA_DC_VIDEO) |= x16c.VERA_VIDEO_LAYER1_EN
         cx.gfx8h_passthru_on()
 
-        filepick.filter(&pattern)
-        filepick.heading(&heading)
-        filepick.footing(&footing)
-        ubyte act = filepick.open()
-        filepick.close()
+        cx.fp_filter(&pattern)
+        cx.fp_heading(&heading)
+        cx.fp_footing(&footing)
+        cx.fp_cache($2000, 1)         ; the listing: VRAM $12000
+        ubyte act = cx.fp_open()
+        cx.fp_close()
 
         ; Off again, and cleared, so nothing of the panel survives over
         ; the picture. cls before the layer goes dark, or the old text
@@ -96,9 +103,9 @@ main {
         @(x16c.VERA_CTRL) = 0
         @(x16c.VERA_DC_VIDEO) &= ~x16c.VERA_VIDEO_LAYER1_EN
 
-        if act != filepick.PICK
+        if act != FPK_PICK
             return false
-        uword p = filepick.path()
+        uword p = cx.fp_path()
         ubyte pn = 0
         while @(p + pn) != 0
             pn++

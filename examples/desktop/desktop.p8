@@ -23,10 +23,16 @@
 %import x16lib
 %import x16lib_const
 %import launcharg
-%import filepick
 %zeropage dontuse         ; the library owns ZP $22-$31; keep Prog8 out of it
 
 main {
+    ; The browser's answers, from the library's ui/filepick.asm. Not in
+    ; x16lib_const: those come from the fixed-size blob, which cannot
+    ; carry a 3 KB browser.
+    const ubyte FPK_NONE = 0
+    const ubyte FPK_PICK = 1
+    const ubyte FPK_ALT  = 2
+
     ; ---- golden RAM ---------------------------------------------------
     const uword STUB     = $0400      ; the trampoline, 88 bytes
     const uword SELFVEC  = $0470      ; where the trampoline returns to
@@ -910,7 +916,7 @@ main {
 ;
 ; The desktop lists EVERYTHING and marks anything that is not a .prg,
 ; because a .bmx is not something it can run but is something it can
-; hand over. filepick.is_primary() is that distinction.
+; hand over. cx.fp_is_primary() is that distinction.
 ; =====================================================================
     ; The browser is dressed like the title bar -- the same light grey
     ; plate, the same blue lettering -- so the two read as parts of one
@@ -937,65 +943,66 @@ main {
     ubyte[24] editbuf
 
     sub pk_setup() {
-        filepick.cache($A400, CFGBANK)     ; the listing, beside the config
-        filepick.filter(&pk_all)
-        filepick.primary(&pk_prg)
-        filepick.style(A_PANEL, A_BAR, A_SEL)
-        filepick.heading(&pk_head)
+        cx.fp_cache($2000, 1)              ; the listing: VRAM $12000, clear
+                                   ; of the icon sprites at $14000
+        cx.fp_filter(&pk_all)
+        cx.fp_primary(&pk_prg)
+        cx.fp_style(A_PANEL, A_BAR, A_SEL)
+        cx.fp_heading(&pk_head)
         if hires
-            filepick.footing(&pk_foot)
+            cx.fp_footing(&pk_foot)
         else
-            filepick.footing(&pk_foot4)
+            cx.fp_footing(&pk_foot4)
     }
 
     ; The panel's geometry, asked of the module so the dialogs below
     ; land inside it whatever screen we are on.
     sub pk_row(ubyte r, ubyte attr) {
-        cx.screen_addr(r, filepick.panel_left())
-        cx.screen_blitfill(filepick.panel_width(), attr, ' ')
+        cx.screen_addr(r, cx.fp_panel_left())
+        cx.screen_blitfill(cx.fp_panel_width(), attr, ' ')
     }
 
     sub pk_left() -> ubyte {
-        return filepick.panel_left()
+        return cx.fp_panel_left()
     }
 
     sub pk_w() -> ubyte {
-        return filepick.panel_width()
+        return cx.fp_panel_width()
     }
 
     ; -> true when a program was chosen to run, with fullpath set
     sub picker() -> bool {
         pk_setup()
-        ubyte act = filepick.open()
-        while act == filepick.ALT {
+        ubyte act = cx.fp_open()
+        while act == FPK_ALT {
             ; right click, or 'a': keep it on the desktop. Only a
             ; program can be kept -- an icon that cannot be launched
             ; would be furniture.
-            if filepick.is_primary() {
-                put_str(&fullpath, filepick.path(), len(fullpath) - 1)
-                void add_dialog(filepick.name())
+            if cx.fp_is_primary() {
+                put_str(&fullpath, cx.fp_path(), len(fullpath) - 1)
+                void add_dialog(cx.fp_name())
             }
-            act = filepick.resume()
+            act = cx.fp_resume()
         }
-        if act != filepick.PICK {
-            filepick.close()
+        if act != FPK_PICK {
+            cx.fp_close()
             return false
         }
-        if filepick.is_primary() {
-            put_str(&fullpath, filepick.path(), len(fullpath) - 1)
-            filepick.close()
+        if cx.fp_is_primary() {
+            put_str(&fullpath, cx.fp_path(), len(fullpath) - 1)
+            cx.fp_close()
             return true
         }
         ; A data file: which program should open it?
-        ubyte w = openwith_dialog(filepick.name())
+        ubyte w = openwith_dialog(cx.fp_name())
         if w == 255 {
-            filepick.close()
+            cx.fp_close()
             return false
         }
-        put_str(&argfile, filepick.path(), len(argfile) - 1)
+        put_str(&argfile, cx.fp_path(), len(argfile) - 1)
         hasarg = true
         put_str(&fullpath, rec_path(w), len(fullpath) - 1)
-        filepick.close()
+        cx.fp_close()
         return true
     }
 
@@ -1029,7 +1036,7 @@ main {
         if not add_entry(&fullpath, &editbuf, ic)
             return false
         cfg_save()                    ; ...which goes to the root, so come
-        cx.dos_chdir(filepick.dir(), slen(filepick.dir()))  ; back to the browsed dir
+        cx.dos_chdir(cx.fp_dir(), slen(cx.fp_dir()))  ; back to the browsed dir
         return true
     }
 
@@ -1048,10 +1055,10 @@ main {
         while true {
             ubyte r = 0
             while r < rows + 2 {
-                pk_row(filepick.panel_top() + 2 + r, A_BAR)
+                pk_row(cx.fp_panel_top() + 2 + r, A_BAR)
                 r++
             }
-            cx.screen_addr(filepick.panel_top() + 2, pk_left() + 2)
+            cx.screen_addr(cx.fp_panel_top() + 2, pk_left() + 2)
             cx.screen_blit("open ", 5, A_BAR)
             ubyte fn = slen(fname)
             if fn > 20
@@ -1066,9 +1073,9 @@ main {
                 ubyte attr = A_BAR
                 if i == sel
                     attr = A_SEL
-                cx.screen_addr(filepick.panel_top() + 3 + i, pk_left() + 2)
+                cx.screen_addr(cx.fp_panel_top() + 3 + i, pk_left() + 2)
                 cx.screen_blitfill(20, attr, ' ')
-                cx.screen_addr(filepick.panel_top() + 3 + i, pk_left() + 4)
+                cx.screen_addr(cx.fp_panel_top() + 3 + i, pk_left() + 4)
                 cx.screen_blit(rec_label(i), slen(rec_label(i)), attr)
                 i++
             }
@@ -1090,9 +1097,9 @@ main {
 
     sub ask_label(ubyte n) -> bool {
         while true {
-            pk_row(filepick.panel_top() + 2, A_BAR)
-            pk_row(filepick.panel_top() + 3, A_BAR)
-            cx.screen_addr(filepick.panel_top() + 2, pk_left() + 2)
+            pk_row(cx.fp_panel_top() + 2, A_BAR)
+            pk_row(cx.fp_panel_top() + 3, A_BAR)
+            cx.screen_addr(cx.fp_panel_top() + 2, pk_left() + 2)
             if hires
                 cx.screen_blit("name on the desktop (enter accepts, esc cancels):",
                                48, A_BAR)
@@ -1102,12 +1109,12 @@ main {
             ; whole trick behind the wallpaper -- and exactly wrong here:
             ; it cut a hole through the panel and let the photograph
             ; through the middle of the text being typed.
-            cx.screen_addr(filepick.panel_top() + 3, pk_left() + 2)
+            cx.screen_addr(cx.fp_panel_top() + 3, pk_left() + 2)
             cx.screen_blitfill(L_MAX + 2, A_EDIT, ' ')
-            cx.screen_addr(filepick.panel_top() + 3, pk_left() + 2)
+            cx.screen_addr(cx.fp_panel_top() + 3, pk_left() + 2)
             if n != 0
                 cx.screen_blit(&editbuf, n, A_EDIT)
-            cx.screen_addr(filepick.panel_top() + 3, pk_left() + 2 + n)
+            cx.screen_addr(cx.fp_panel_top() + 3, pk_left() + 2 + n)
             cx.screen_blit("_", 1, A_EDIT)
 
             ubyte k = cx.key_wait()
@@ -1135,11 +1142,11 @@ main {
     sub ask_icon() -> ubyte {
         ubyte sel = 0
         while true {
-            pk_row(filepick.panel_top() + 2, A_BAR)
-            pk_row(filepick.panel_top() + 3, A_BAR)
-            pk_row(filepick.panel_top() + 4, A_BAR)
-            pk_row(filepick.panel_top() + 5, A_BAR)
-            cx.screen_addr(filepick.panel_top() + 2, pk_left() + 2)
+            pk_row(cx.fp_panel_top() + 2, A_BAR)
+            pk_row(cx.fp_panel_top() + 3, A_BAR)
+            pk_row(cx.fp_panel_top() + 4, A_BAR)
+            pk_row(cx.fp_panel_top() + 5, A_BAR)
+            cx.screen_addr(cx.fp_panel_top() + 2, pk_left() + 2)
             if hires
                 cx.screen_blit("pick an icon (left/right, enter accepts, esc cancels):",
                                53, A_BAR)
@@ -1151,15 +1158,15 @@ main {
                 if not hires
                     pitch = 3
                 ubyte c = pk_left() + 2 + i * pitch
-                cx.screen_addr(filepick.panel_top() + 3, c)
+                cx.screen_addr(cx.fp_panel_top() + 3, c)
                 cx.screen_blitfill(pitch - 1, pbar[i] | (pbar[i] << 4), ' ')
-                cx.screen_addr(filepick.panel_top() + 4, c)
+                cx.screen_addr(cx.fp_panel_top() + 4, c)
                 cx.screen_blitfill(pitch - 1, pfill[i] | (pfill[i] << 4), ' ')
                 ; A pair of small arrows beside a chip is not enough to see
                 ; at a glance -- which of twelve is chosen has to be obvious
                 ; without hunting. So the choice gets a solid bar under it,
                 ; the full width of the chip.
-                cx.screen_addr(filepick.panel_top() + 5, c)
+                cx.screen_addr(cx.fp_panel_top() + 5, c)
                 if i == sel
                     cx.screen_blitfill(pitch - 1, 6 | (6 << 4), ' ')   ; solid blue
                 else

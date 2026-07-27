@@ -8784,7 +8784,7 @@ cx {
         }}
     }
 
-    ; -> A = FP_NONE (cancelled), FP_PICK (a file), FP_ALT (the second gesture)
+    ; -> A = FPK_NONE (cancelled), FPK_PICK (a file), FPK_ALT (the second gesture)
     sub fp_open() -> ubyte {
         %asm {{
         .if BANK_X16_USE_FILEPICK

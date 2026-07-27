@@ -282,8 +282,14 @@ uses freed only 1,745 — those modules are thin KERNAL bindings, there is not
 4 KB of them to move. As a library module the browser costs kalk **434 bytes**
 of low RAM (the far-call wrappers) with 4,897 bytes living in bank 20.
 
-Use `x16lib/filepick.p8` for a program with room to spare, and `cx.fp_*` with
-`-Bank` for one without.
+Every program here uses the library one now — the desktop, imgview and kalk —
+so there is a single browser, in a single language, and `x16lib/filepick.p8` is
+gone. Only kalk banks it; the other two have the room and keep it in low RAM.
+
+The result codes are `FPK_NONE` / `FPK_PICK` / `FPK_ALT` (0/1/2). They are not
+in `x16lib_const`, which is generated from the fixed-size distribution blob —
+and that blob is an everything-build against a hard `$9EFF` ceiling, which a
+3 KB browser does not fit into. Declare the three you need, as the examples do.
 
 ## `launcharg` — telling a program which file to open
 
