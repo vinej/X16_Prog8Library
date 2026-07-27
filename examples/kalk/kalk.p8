@@ -104,7 +104,7 @@ main {
     str s_src   = "Source:"
     str s_to    = " to:"
     str s_movep = "Move: cursor keys drag, Ret confirm, Esc cancel"
-    str s_ioerr = "I/O error. Press a key."
+    str s_ioerr = "I/O error, press a key --"
     str s_busy  = "Working..."
     str s_swr   = ",s,w"
     ; What the browser lists: sheets by their own extension, and .csv
@@ -1160,30 +1160,17 @@ main {
     ; own says nothing you can act on, so ask the drive what it thinks:
     ; 62 is FILE NOT FOUND, 74 DRIVE NOT READY, and so on.
     sub io_fail() {
-        ; "I/O error" alone is useless. Show which step refused, what the
-        ; drive says about it, and -- the thing that has been wrong twice
-        ; now -- the name that was actually handed over.
+        ; The drive's own code, because "I/O error" on its own sends you
+        ; guessing: 62 is FILE NOT FOUND, 74 DRIVE NOT READY. It cost
+        ; several rounds of guessing to learn that, so it stays.
         cx.dos_status()
         ubyte code = cx.dos_lasterr()
         cx.screen_addr(0, 0)
         cx.screen_blitfill(USEW, attr(C_FG, C_BG), ' ')
         cx.screen_addr(0, 0)
-        if why == 1
-            cx.screen_blit("OPEN refused", 12, attr(C_FG, C_BG))
-        else if why == 2
-            cx.screen_blit("READ refused", 12, attr(C_FG, C_BG))
-        else
-            cx.screen_blit("I/O error", 9, attr(C_FG, C_BG))
-        cx.screen_blit("  st=", 5, attr(C_FG, C_BG))
-        putnum(whyst)
-        cx.screen_blit(" dos=", 5, attr(C_FG, C_BG))
+        cx.screen_blit(&s_ioerr, len(s_ioerr), attr(C_FG, C_BG))
+        cx.screen_blit(" drive ", 7, attr(C_FG, C_BG))
         putnum(code)
-        cx.screen_blit(" len=", 5, attr(C_FG, C_BG))
-        putnum(fnlen)
-        cx.screen_blit(" [", 2, attr(C_FG, C_BG))
-        if fnlen != 0
-            cx.screen_blit(&fname, fnlen, attr(C_FG, C_BG))
-        cx.screen_blit("]", 1, attr(C_FG, C_BG))
         void cx.key_wait()
         needfull = true
     }
@@ -1347,18 +1334,12 @@ main {
         return 2
     }
 
-    ubyte why                         ; which failure, for io_fail
-    ubyte whyst
-
     sub csv_load() -> bool {
-        why = 0
-        whyst = 0
         csv_eof = false
         csv_haspend = false
         if cx.fio_open_read(&fname, fnlen, 1, 8, 2) {
             cx.fio_clrchn()
             cx.fio_close(1)
-            why = 1                   ; OPEN itself refused
             return false
         }
         ; OPEN never reports a missing file on a CBM device -- the first
@@ -1368,8 +1349,6 @@ main {
         if st & $02 != 0 {
             cx.fio_clrchn()
             cx.fio_close(1)
-            why = 2                   ; opened, but the first read said no
-            whyst = st
             return false
         }
         csv_haspend = true

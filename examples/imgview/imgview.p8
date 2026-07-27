@@ -15,6 +15,11 @@
 ;      to *.bmx
 ;   3. image.bmx, the old default, so RUN still works from BASIC
 ;
+; A BMX is a fixed-size picture: the header says how big it is and the
+; pixels land 1:1 from the top left. 640x480 fills the screen; the
+; 320x240 wallpaper (wallo.bmx) covers the top-left quarter and is
+; meant to -- it is the picture for a machine with no VERA_2 board.
+;
 ; Press O to open another, ESC to leave. Returning rather than looping
 ; forever is what lets examples\desktop launch this and get control back.
 ;
@@ -110,8 +115,14 @@ main {
         ; browser: unbanked that would work, banked it would hand back
         ; an empty string, and this way it is right either way.
         ubyte pn = cx.fp_copy_path(&picked, len(picked))
-        if pn != 0
+        if pn != 0 {
+            ; A BMX carries its own size and is loaded 1:1 from the top
+            ; left -- 640x480 fills the screen, 320x240 covers a quarter
+            ; of it. Clear first, or the picture before this one stays
+            ; visible around the edges of a smaller one.
+            cx.gfx8h_clear(0)
             cx.bmx_load_hires(&picked, pn, 8)
+        }
         return false
     }
 }
