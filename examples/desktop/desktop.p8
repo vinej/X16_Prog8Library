@@ -993,7 +993,9 @@ main {
         }
         if cx.fp_is_primary() {
             void cx.fp_copy_path(&fullpath, len(fullpath))
+            void cx.fp_copy_name(&pickname, len(pickname))
             cx.fp_close()
+            say_loading(&pickname)
             return true
         }
         ; A data file: which program should open it?
@@ -1286,7 +1288,28 @@ main {
     }
 
     sub launch(ubyte i) {
+        say_loading(rec_label(i))
         launch_path(rec_path(i))
+    }
+
+    ; Between the double click and the program appearing there is a
+    ; noticeable wait -- the file is read to find its entry point, the
+    ; icon list is saved, then the trampoline loads the program itself.
+    ; Without a word on screen that reads as a click that did nothing,
+    ; and the second click people give it lands in whatever comes up.
+    ;
+    ; It goes in the title bar, which is about to be replaced by the
+    ; program anyway, so nothing has to put it back.
+    sub say_loading(uword label) {
+        cx.screen_addr(0, 0)
+        cx.screen_blitfill(scrw, 6 | (15 << 4), ' ')
+        cx.screen_addr(0, 1)
+        cx.screen_blit("loading ", 8, 6 | (15 << 4))
+        ubyte n = slen(label)
+        if n > 20
+            n = 20
+        cx.screen_blit(label, n, 6 | (15 << 4))
+        cx.screen_blit("...", 3, 6 | (15 << 4))
     }
 
     sub launch_path(uword path) {
