@@ -113,11 +113,12 @@ main {
     str s_sheets   = "*.klk;*.csv"
     str s_sheetsin = "sheets in "
     str s_saveinto = "save into "
-    str s_savefoot = "walk to the folder, esc saves there   click a sheet to replace it"
+    str s_savefoot = "walk to the folder then press h   click a sheet to replace it   esc cancels"
     ; the browser's answers, from the library's ui/filepick.asm
     const ubyte FPK_NONE = 0
     const ubyte FPK_PICK = 1
     const ubyte FPK_ALT  = 2
+    const ubyte FPK_HERE = 3      ; 'h': the folder being shown
 
 
 ; =====================================================================
@@ -1146,20 +1147,21 @@ main {
     ; be written. Landing on an existing sheet fills its name in as the
     ; default, so replacing one is a matter of picking it and pressing
     ; enter twice.
-    sub browse_save() {
+    sub browse_save() -> bool {
         cx.fp_cache($2000, 1)
         cx.fp_saveunder(1, $4000, 1)
         cx.fp_filter(&s_sheets)
         cx.fp_heading(&s_saveinto)
         cx.fp_footing(&s_savefoot)
         ubyte act = cx.fp_open()
-        ; Whatever happened, the drive is now in the directory the panel
-        ; was showing -- that IS the answer to "where", and it needs no
-        ; further ceremony. A picked file additionally names itself.
         if act == FPK_PICK
-            fnlen = cx.fp_copy_name(&fname, len(fname))
+            fnlen = cx.fp_copy_name(&fname, len(fname))   ; replace that one
         cx.fp_close()
         needfull = true
+        ; ESC now means what it says. 'h' takes the folder on show, and
+        ; the drive is left standing there either way, so the filename
+        ; asked for next is written where you chose.
+        return act == FPK_PICK or act == FPK_HERE
     }
 
     ; ask for a filename; -> false when cancelled
@@ -1431,8 +1433,8 @@ main {
                 }
             }
         } else if ch == 'S' or ch == 'Q' {
-            browse_save()             ; choose WHERE first, then the name
-            if askname(&s_save) {
+            ; choose WHERE first; ESC there cancels the save outright
+            if browse_save() and askname(&s_save) {
                 if not csv_save() {
                     io_fail()
                 } else {

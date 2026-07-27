@@ -915,6 +915,7 @@
 "filepick_lp_left": "X16_USE_FILEPICK",
 "filepick_lp_move": "X16_USE_FILEPICK",
 "filepick_lp_none": "X16_USE_FILEPICK",
+"filepick_lp_nothere": "X16_USE_FILEPICK",
 "filepick_lp_pick": "X16_USE_FILEPICK",
 "filepick_lp_poll": "X16_USE_FILEPICK",
 "filepick_lp_press": "X16_USE_FILEPICK",
