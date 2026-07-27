@@ -9115,7 +9115,7 @@ cx {
         }}
     }
 
-    ; storage/dos -> A = status code
+    ; ui/filepick -- the editing half (X16_USE_FILEPICK_EDIT) No routines of its own to call: n/e/d/c/v are handled 
     sub dos_cmd(uword cmd, ubyte len_) -> ubyte {
         %asm {{
         .if BANK_X16_USE_DOS

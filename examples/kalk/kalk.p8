@@ -17,6 +17,7 @@
 ; =====================================================================
 %import x16lib
 %import x16lib_const
+; X16_GATE X16_USE_FILEPICK_EDIT   -- n/e/d/c/v in the browser
 %import launcharg
 %import kalkcore
 %zeropage dontuse         ; the library owns ZP $22-$31; keep Prog8 out of it
@@ -112,6 +113,7 @@ main {
     ; of them should not look empty.
     str s_sheets   = "*.klk;*.csv"
     str s_sheetsin = "sheets in "
+    str s_editfoot = "n new folder  e rename  d delete  c copy  v paste  esc closes"
     str s_saveinto = "save into "
     str s_savefoot = "walk to the folder then press h   click a sheet to replace it   esc cancels"
     ; the browser's answers, from the library's ui/filepick.asm
@@ -1123,6 +1125,7 @@ main {
         cx.fp_saveunder(1, $4000, 1)
         cx.fp_filter(&s_sheets)
         cx.fp_heading(&s_sheetsin)
+        cx.fp_footing(&s_editfoot)
         ubyte act = cx.fp_open()
         cx.fp_close()
         needfull = true               ; the status line is ours again

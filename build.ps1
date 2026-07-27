@@ -89,6 +89,17 @@ $gates = New-Object System.Collections.Generic.HashSet[string]
 foreach ($name in $called) {
     if ($map.PSObject.Properties.Name -contains $name) { [void]$gates.Add($map.$name) }
 }
+# A module with no cx.* entry points of its own cannot be found by the
+# call scan: filepick's editing half (n/e/d/c/v inside fp_open) is asked
+# for by a directive in the program rather than by calling something.
+#
+#     ; X16_GATE X16_USE_FILEPICK_EDIT
+#
+# It has to join the set BEFORE the bank layout is resolved, or -Bank
+# would leave it in low RAM while the rest of the module moved out.
+foreach ($line in (Get-Content $Program)) {
+    if ($line -match '^\s*;\s*X16_GATE\s+(X16_USE_[A-Z0-9_]+)') { [void]$gates.Add($matches[1]) }
+}
 $enabled = @($gates)
 Write-Host ("Modules used ({0}): {1}" -f $enabled.Count, (($enabled | Sort-Object) -join ", ")) -ForegroundColor Cyan
 
