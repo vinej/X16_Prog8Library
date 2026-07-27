@@ -21258,6 +21258,18 @@ filepick_lp_poll
     jsr key_get
     sta fp_key
     beq filepick_hop10
+    ; The KERNAL answers in PETSCII, where an unshifted letter is $41-$5A
+    ; -- the codes ASCII uses for CAPITALS -- and a shifted one is
+    ; $C1-$DA. ACME's 'n' is $6E, which the keyboard never sends, so
+    ; every letter command in here was dead until this fold.
+    cmp #$C1
+    bcc filepick_kf_done
+    cmp #$DB
+    bcs filepick_kf_done
+    sec
+    sbc #$80
+    sta fp_key
+filepick_kf_done
     jmp filepick_lp_act
 filepick_hop10
     jsr mse_get
@@ -21314,7 +21326,9 @@ filepick_lp_rows
     clc
     adc fp_top
     cmp fp_nent
-    bcs filepick_lp_poll
+    bcc filepick_fk1677
+    jmp filepick_lp_poll
+filepick_fk1677
     sta fp_idx
     sta fp_sel
     lda fp_tmp
@@ -21385,30 +21399,30 @@ filepick_lp_key
     sta fp_key
 filepick_lp_haskey
     lda fp_key
-    cmp #'h'                    ; "the folder I am looking at"
+    cmp #'H'                    ; "the folder I am looking at"
     bne filepick_lp_nothere
     lda #FPK_HERE
     rts
 filepick_lp_nothere
 .if xuse_filepick_edit
     lda fp_key
-    cmp #'n'
+    cmp #'N'
     bne filepick_lp_note1
     jmp filepick_ed_newdir
 filepick_lp_note1
-    cmp #'e'                    ; not 'r': that already runs/picks
+    cmp #'E'                    ; not 'r': that already runs/picks
     bne filepick_lp_note2
     jmp filepick_ed_rename
 filepick_lp_note2
-    cmp #'d'
+    cmp #'D'
     bne filepick_lp_note3
     jmp filepick_ed_delete
 filepick_lp_note3
-    cmp #'c'
+    cmp #'C'
     bne filepick_lp_note4
     jmp filepick_ed_copy
 filepick_lp_note4
-    cmp #'v'
+    cmp #'V'
     bne filepick_lp_note5
     jmp filepick_ed_paste
 filepick_lp_note5
@@ -21469,9 +21483,9 @@ filepick_lp_file
     lda fp_key
     cmp #$0D
     beq filepick_lp_pick
-    cmp #'r'
+    cmp #'R'
     beq filepick_lp_pick
-    cmp #'a'
+    cmp #'A'
     beq filepick_hop18
     jmp filepick_lp_input
 filepick_hop18
