@@ -112,6 +112,8 @@ main {
     ; of them should not look empty.
     str s_sheets   = "*.klk;*.csv"
     str s_sheetsin = "sheets in "
+    str s_saveinto = "save into "
+    str s_savefoot = "walk to the folder, esc saves there   click a sheet to replace it"
     ; the browser's answers, from the library's ui/filepick.asm
     const ubyte FPK_NONE = 0
     const ubyte FPK_PICK = 1
@@ -1138,6 +1140,28 @@ main {
         return fnlen != 0
     }
 
+    ; Choose where to save. The browser is a navigator here rather than
+    ; a chooser: walk into the folder you want and press ESC, and the
+    ; drive is left standing there, which is where a bare filename will
+    ; be written. Landing on an existing sheet fills its name in as the
+    ; default, so replacing one is a matter of picking it and pressing
+    ; enter twice.
+    sub browse_save() {
+        cx.fp_cache($2000, 1)
+        cx.fp_saveunder(1, $4000, 1)
+        cx.fp_filter(&s_sheets)
+        cx.fp_heading(&s_saveinto)
+        cx.fp_footing(&s_savefoot)
+        ubyte act = cx.fp_open()
+        ; Whatever happened, the drive is now in the directory the panel
+        ; was showing -- that IS the answer to "where", and it needs no
+        ; further ceremony. A picked file additionally names itself.
+        if act == FPK_PICK
+            fnlen = cx.fp_copy_name(&fname, len(fname))
+        cx.fp_close()
+        needfull = true
+    }
+
     ; ask for a filename; -> false when cancelled
     sub askname(uword label) -> bool {
         show_msg(label)
@@ -1407,6 +1431,7 @@ main {
                 }
             }
         } else if ch == 'S' or ch == 'Q' {
+            browse_save()             ; choose WHERE first, then the name
             if askname(&s_save) {
                 if not csv_save() {
                     io_fail()
