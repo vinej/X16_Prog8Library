@@ -941,6 +941,8 @@ main {
     ubyte[64] argfile
     bool hasarg = false
     ubyte[24] editbuf
+    ubyte[40] pickname            ; the chosen name, copied out of the browser
+    ubyte[64] pickdir             ; ...and the directory it came from
 
     sub pk_setup() {
         cx.fp_cache($2000, 1)              ; the listing: VRAM $12000, clear
@@ -979,8 +981,9 @@ main {
             ; program can be kept -- an icon that cannot be launched
             ; would be furniture.
             if cx.fp_is_primary() {
-                put_str(&fullpath, cx.fp_path(), len(fullpath) - 1)
-                void add_dialog(cx.fp_name())
+                void cx.fp_copy_path(&fullpath, len(fullpath))
+                void cx.fp_copy_name(&pickname, len(pickname))
+                void add_dialog(&pickname)
             }
             act = cx.fp_resume()
         }
@@ -989,17 +992,18 @@ main {
             return false
         }
         if cx.fp_is_primary() {
-            put_str(&fullpath, cx.fp_path(), len(fullpath) - 1)
+            void cx.fp_copy_path(&fullpath, len(fullpath))
             cx.fp_close()
             return true
         }
         ; A data file: which program should open it?
-        ubyte w = openwith_dialog(cx.fp_name())
+        void cx.fp_copy_name(&pickname, len(pickname))
+        ubyte w = openwith_dialog(&pickname)
         if w == 255 {
             cx.fp_close()
             return false
         }
-        put_str(&argfile, cx.fp_path(), len(argfile) - 1)
+        void cx.fp_copy_path(&argfile, len(argfile))
         hasarg = true
         put_str(&fullpath, rec_path(w), len(fullpath) - 1)
         cx.fp_close()
@@ -1036,7 +1040,8 @@ main {
         if not add_entry(&fullpath, &editbuf, ic)
             return false
         cfg_save()                    ; ...which goes to the root, so come
-        cx.dos_chdir(cx.fp_dir(), slen(cx.fp_dir()))  ; back to the browsed dir
+        ubyte dn = cx.fp_copy_dir(&pickdir, len(pickdir))
+        cx.dos_chdir(&pickdir, dn)  ; back to the browsed dir
         return true
     }
 

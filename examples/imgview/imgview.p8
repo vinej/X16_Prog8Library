@@ -42,6 +42,7 @@ main {
     str pattern  = "*.bmx"
     str heading  = "pictures in "
     str footing  = "double click opens   esc closes"
+    ubyte[64] picked                ; the path, copied out of the browser
 
     sub start() {
         cx.load_banks()                 ; no-op unless modules were -Bank'd
@@ -105,11 +106,12 @@ main {
 
         if act != FPK_PICK
             return false
-        uword p = cx.fp_path()
-        ubyte pn = 0
-        while @(p + pn) != 0
-            pn++
-        cx.bmx_load_hires(p, pn, 8)
+        ; Copy the path out rather than following a pointer into the
+        ; browser: unbanked that would work, banked it would hand back
+        ; an empty string, and this way it is right either way.
+        ubyte pn = cx.fp_copy_path(&picked, len(picked))
+        if pn != 0
+            cx.bmx_load_hires(&picked, pn, 8)
         return false
     }
 }

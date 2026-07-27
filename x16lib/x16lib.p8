@@ -8898,6 +8898,81 @@ cx {
         return ret16
     }
 
+    ; -> A = characters copied. Use these from a BANKED filepick: a pointer it returns names storage that travels in
+    sub fp_copy_path(uword dest, ubyte size) -> ubyte {
+        %asm {{
+        .if BANK_X16_USE_FILEPICK
+            lda $00
+            pha
+            lda #BANK_X16_USE_FILEPICK
+            sta $00
+        .endif
+            lda p8v_dest
+            sta $22
+            lda p8v_dest+1
+            sta $23
+            lda p8v_size
+            sta $24
+            jsr x16src.fp_copy_path
+            sta p8v_ret8
+        .if BANK_X16_USE_FILEPICK
+            pla
+            sta $00
+        .endif
+        }}
+        return ret8
+    }
+
+    ; -> A = characters copied
+    sub fp_copy_name(uword dest, ubyte size) -> ubyte {
+        %asm {{
+        .if BANK_X16_USE_FILEPICK
+            lda $00
+            pha
+            lda #BANK_X16_USE_FILEPICK
+            sta $00
+        .endif
+            lda p8v_dest
+            sta $22
+            lda p8v_dest+1
+            sta $23
+            lda p8v_size
+            sta $24
+            jsr x16src.fp_copy_name
+            sta p8v_ret8
+        .if BANK_X16_USE_FILEPICK
+            pla
+            sta $00
+        .endif
+        }}
+        return ret8
+    }
+
+    ; -> A = characters copied
+    sub fp_copy_dir(uword dest, ubyte size) -> ubyte {
+        %asm {{
+        .if BANK_X16_USE_FILEPICK
+            lda $00
+            pha
+            lda #BANK_X16_USE_FILEPICK
+            sta $00
+        .endif
+            lda p8v_dest
+            sta $22
+            lda p8v_dest+1
+            sta $23
+            lda p8v_size
+            sta $24
+            jsr x16src.fp_copy_dir
+            sta p8v_ret8
+        .if BANK_X16_USE_FILEPICK
+            pla
+            sta $00
+        .endif
+        }}
+        return ret8
+    }
+
     ; -> carry SET when the chosen entry matches the primary pattern
     sub fp_is_primary() -> bool {
         %asm {{

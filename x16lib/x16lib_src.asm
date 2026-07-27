@@ -19654,6 +19654,11 @@ dir_getb_end
 ;       cmp #FPK_PICK
 ;       bne _nothing
 ;       jsr fp_path                    ; X/Y = the absolute path
+;
+; ...or, from a BANKED filepick, fp_copy_path / fp_copy_name into your
+; own buffer: a pointer this module returns names its own storage, which
+; travels into the bank with it and is not mapped once the wrapper has
+; switched back.
 ;       ...
 ; _nothing
 ;       jsr fp_close
@@ -19901,6 +19906,16 @@ fp_start_dir
 ; ---------------------------------------------------------------------
 ; fp_path -- the absolute path of the chosen entry
 ;   out: X/Y = a pointer to it, NUL-terminated
+;
+; ONLY SAFE UNBANKED. This module's storage moves with the module: put
+; it in a RAM bank with -Bank and the pointer names an address in a bank
+; that is no longer mapped by the time the caller reads it. The caller
+; sees whatever is in the window instead -- an empty string, if it is a
+; freshly cleared bank, which is how a perfectly good file arrived at
+; the drive with no name at all.
+;
+; Use fp_copy_path / fp_copy_name / fp_copy_dir instead: they run with
+; the module's bank paged in and copy into the CALLER's memory.
 ; ---------------------------------------------------------------------
 fp_path
     ldx #<fp_full
@@ -19946,6 +19961,59 @@ filepick_nm_done
 fp_dir
     ldx #<fp_curdir
     ldy #>fp_curdir
+    rts
+
+; ---------------------------------------------------------------------
+; fp_copy_path -- the absolute path, copied into the caller's memory
+;   in:  X16_P0/P1 = destination, X16_P2 = its size (the NUL included)
+;   out: A = how many characters were copied, terminator aside
+;
+; This is the one to use from a BANKED filepick: the copy happens with
+; the module's bank paged in, and lands somewhere the caller can still
+; read afterwards.
+; ---------------------------------------------------------------------
+fp_copy_path
+    lda #<fp_full
+    sta fp_src
+    lda #>fp_full
+    sta fp_src+1
+    bra filepick_copy_out
+
+; ---------------------------------------------------------------------
+; fp_copy_name -- just the name, without the directory
+;   in:  X16_P0/P1 = destination, X16_P2 = its size
+;   out: A = how many characters were copied
+; ---------------------------------------------------------------------
+fp_copy_name
+    jsr fp_name
+    stx fp_src
+    sty fp_src+1
+    bra filepick_copy_out
+
+; ---------------------------------------------------------------------
+; fp_copy_dir -- the directory being browsed, which is where the drive
+;                was left standing
+;   in:  X16_P0/P1 = destination, X16_P2 = its size
+;   out: A = how many characters were copied
+; ---------------------------------------------------------------------
+fp_copy_dir
+    lda #<fp_curdir
+    sta fp_src
+    lda #>fp_curdir
+    sta fp_src+1
+filepick_copy_out
+    lda X16_P0
+    sta fp_dst
+    lda X16_P1
+    sta fp_dst+1
+    lda X16_P2
+    beq filepick_co_none
+    dec a  ; leave room for the terminator
+    jsr filepick_put_str
+    tya                         ; filepick_put_str leaves Y = the length
+    rts
+filepick_co_none
+    lda #0
     rts
 
 ; ---------------------------------------------------------------------

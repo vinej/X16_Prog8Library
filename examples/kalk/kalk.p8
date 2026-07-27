@@ -112,6 +112,10 @@ main {
     ; of them should not look empty.
     str s_sheets   = "*.klk;*.csv"
     str s_sheetsin = "sheets in "
+    ; the browser's answers, from the library's ui/filepick.asm
+    const ubyte FPK_NONE = 0
+    const ubyte FPK_PICK = 1
+    const ubyte FPK_ALT  = 2
 
 
 ; =====================================================================
@@ -1119,16 +1123,19 @@ main {
         ubyte act = cx.fp_open()
         cx.fp_close()
         needfull = true               ; the status line is ours again
-        if act != 1                   ; FP_PICK
+        if act != FPK_PICK
             return false
-        uword pth = cx.fp_path()
-        ubyte n = 0
-        while @(pth + n) != 0 and n < len(fname) {
-            fname[n] = @(pth + n)
-            n++
-        }
-        fnlen = n
-        return true
+        ; COPY the name out rather than following a pointer to it. The
+        ; browser lives in bank 20 here, and a pointer it returns names
+        ; its own storage -- which is not mapped any more by the time
+        ; the far-call wrapper has switched the bank back. Reading
+        ; through one gave an empty string, so the drive was asked to
+        ; open a file with no name at all.
+        ;
+        ; The bare name is enough: fp_close leaves the drive standing in
+        ; the directory the panel was showing.
+        fnlen = cx.fp_copy_name(&fname, len(fname))
+        return fnlen != 0
     }
 
     ; ask for a filename; -> false when cancelled
@@ -1149,11 +1156,57 @@ main {
         return true
     }
 
-    ; the file is already closed by whoever failed -- just report
+    ; The file is already closed by whoever failed. "I/O error" on its
+    ; own says nothing you can act on, so ask the drive what it thinks:
+    ; 62 is FILE NOT FOUND, 74 DRIVE NOT READY, and so on.
     sub io_fail() {
-        show_msg(&s_ioerr)
+        ; "I/O error" alone is useless. Show which step refused, what the
+        ; drive says about it, and -- the thing that has been wrong twice
+        ; now -- the name that was actually handed over.
+        cx.dos_status()
+        ubyte code = cx.dos_lasterr()
+        cx.screen_addr(0, 0)
+        cx.screen_blitfill(USEW, attr(C_FG, C_BG), ' ')
+        cx.screen_addr(0, 0)
+        if why == 1
+            cx.screen_blit("OPEN refused", 12, attr(C_FG, C_BG))
+        else if why == 2
+            cx.screen_blit("READ refused", 12, attr(C_FG, C_BG))
+        else
+            cx.screen_blit("I/O error", 9, attr(C_FG, C_BG))
+        cx.screen_blit("  st=", 5, attr(C_FG, C_BG))
+        putnum(whyst)
+        cx.screen_blit(" dos=", 5, attr(C_FG, C_BG))
+        putnum(code)
+        cx.screen_blit(" len=", 5, attr(C_FG, C_BG))
+        putnum(fnlen)
+        cx.screen_blit(" [", 2, attr(C_FG, C_BG))
+        if fnlen != 0
+            cx.screen_blit(&fname, fnlen, attr(C_FG, C_BG))
+        cx.screen_blit("]", 1, attr(C_FG, C_BG))
         void cx.key_wait()
         needfull = true
+    }
+
+    ; Format here rather than calling u8_to_dec: that returns a pointer
+    ; into the number module, which is in a bank in this build -- the
+    ; same trap that emptied the filename.
+    ubyte[4] numbuf
+
+    sub putnum(ubyte v) {
+        ubyte n = 0
+        if v >= 100 {
+            numbuf[n] = '0' + v / 100
+            n++
+            v %= 100
+        }
+        if n != 0 or v >= 10 {
+            numbuf[n] = '0' + v / 10
+            n++
+        }
+        numbuf[n] = '0' + v % 10
+        n++
+        cx.screen_blit(&numbuf, n, attr(C_FG, C_BG))
     }
 
     sub csv_needs_quote(uword s, ubyte n) -> bool {
@@ -1294,12 +1347,18 @@ main {
         return 2
     }
 
+    ubyte why                         ; which failure, for io_fail
+    ubyte whyst
+
     sub csv_load() -> bool {
+        why = 0
+        whyst = 0
         csv_eof = false
         csv_haspend = false
         if cx.fio_open_read(&fname, fnlen, 1, 8, 2) {
             cx.fio_clrchn()
             cx.fio_close(1)
+            why = 1                   ; OPEN itself refused
             return false
         }
         ; OPEN never reports a missing file on a CBM device -- the first
@@ -1309,6 +1368,8 @@ main {
         if st & $02 != 0 {
             cx.fio_clrchn()
             cx.fio_close(1)
+            why = 2                   ; opened, but the first read said no
+            whyst = st
             return false
         }
         csv_haspend = true

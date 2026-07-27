@@ -10,4 +10,9 @@
 # rest stay in low RAM: those are kalk's inner loops.
 #
 #   .\build.ps1 examples\kalk\kalk.p8 -BankFile examples\kalk\kalk.banks
-bank 20, "filepick,dir"
+# dos joins them: asking the drive why a load failed is not worth
+# 300 bytes of low RAM, and the browser already needs it in there.
+# mouse and number join them so the diagnostics fit: kalk polls the
+# mouse once per loop and formats a number only when something has
+# already gone wrong, so neither minds the far call.
+bank 20, "filepick,dir,dos,mouse,number"
