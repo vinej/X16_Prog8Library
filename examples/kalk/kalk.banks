@@ -1,0 +1,13 @@
+# examples\kalk\kalk.banks -- the file browser lives in a RAM bank.
+#
+# filepick is ~3 KB of library code that a spreadsheet only touches
+# while the panel is up, and kalk is within a few KB of the low-RAM
+# ceiling. Banked, its wrappers page bank 20 in, call, and page back;
+# what is left in low RAM is the handful of bytes for those wrappers.
+#
+# dir goes in the same bank because the browser calls it, and a banked
+# module cannot call into another bank. screen, float, fileio and the
+# rest stay in low RAM: those are kalk's inner loops.
+#
+#   .\build.ps1 examples\kalk\kalk.p8 -BankFile examples\kalk\kalk.banks
+bank 20, "filepick,dir"

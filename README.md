@@ -265,13 +265,25 @@ own ZP `$22-$31`, and `basicsafe` hands Prog8 those same bytes — the symptom i
 a panel drawn in fragments across the screen, because `screen_addr` calculates
 through them.
 
-**Cost:** about **4 KB** of low RAM for the module, plus `X16_USE_DIR`, `MOUSE`,
-`CLOCK` and `SCREEN_EXTRA` if a program did not already use them (imgview went
-from 3.9 KB to 9.6 KB). That is Prog8 code, so `-Bank` cannot move it: banking
-relocates library modules only. `kalk` is the program this actually excludes —
-it is within about 3 KB of the low-RAM ceiling, and banking every library
-module it uses frees only 1.7 KB, because those modules are thin KERNAL
-bindings. kalk takes files from the desktop through `launcharg` instead.
+**Cost:** about **4 KB** of low RAM. That is Prog8 code, so `-Bank` cannot move
+it — banking relocates library modules only.
+
+**Which is why the browser is now in X16_Library too**, as `X16_USE_FILEPICK`
+(`cx.fp_*`). Same panel, same filters, written in ACME so it *can* be banked:
+
+```
+# examples\kalk\kalk.banks
+bank 20, "filepick,dir"
+```
+
+kalk is the program that proves the point. As a Prog8 module the browser put it
+**3,927 bytes over** the low-RAM ceiling and banking every library module it
+uses freed only 1,745 — those modules are thin KERNAL bindings, there is not
+4 KB of them to move. As a library module the browser costs kalk **434 bytes**
+of low RAM (the far-call wrappers) with 4,897 bytes living in bank 20.
+
+Use `x16lib/filepick.p8` for a program with room to spare, and `cx.fp_*` with
+`-Bank` for one without.
 
 ## `launcharg` — telling a program which file to open
 

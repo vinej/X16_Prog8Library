@@ -107,6 +107,11 @@ main {
     str s_ioerr = "I/O error. Press a key."
     str s_busy  = "Working..."
     str s_swr   = ",s,w"
+    ; What the browser lists: sheets by their own extension, and .csv
+    ; too, because that is what kalk has always written and a card full
+    ; of them should not look empty.
+    str s_sheets   = "*.klk;*.csv"
+    str s_sheetsin = "sheets in "
 
 
 ; =====================================================================
@@ -1093,6 +1098,39 @@ main {
         return c
     }
 
+    ; Browse for a sheet instead of typing its name. -> true when one
+    ; was chosen, with fname/fnlen set for csv_load.
+    ;
+    ; The panel covers most of the grid, so it keeps what is underneath
+    ; in a spare bank and puts it back on the way out: kalk cannot
+    ; repaint the way a launcher does, because a repaint here means
+    ; recalculating every visible cell. Banks 1-10 hold the sheet, so
+    ; the browser gets 60 for its listing and 61 for the save-under.
+    sub browse_load() -> bool {
+        ; Both live in VRAM, which is where a browser that might be
+        ; running from a RAM bank has to keep things: the listing at
+        ; $12000 and the copy of the screen under the panel at $14000,
+        ; clear of the text map at $1B000. kalk's own banks 1-10 are
+        ; untouched by either.
+        cx.fp_cache($2000, 1)
+        cx.fp_saveunder(1, $4000, 1)
+        cx.fp_filter(&s_sheets)
+        cx.fp_heading(&s_sheetsin)
+        ubyte act = cx.fp_open()
+        cx.fp_close()
+        needfull = true               ; the status line is ours again
+        if act != 1                   ; FP_PICK
+            return false
+        uword pth = cx.fp_path()
+        ubyte n = 0
+        while @(pth + n) != 0 and n < len(fname) {
+            fname[n] = @(pth + n)
+            n++
+        }
+        fnlen = n
+        return true
+    }
+
     ; ask for a filename; -> false when cancelled
     sub askname(uword label) -> bool {
         show_msg(label)
@@ -1307,7 +1345,17 @@ main {
         modez = &m_ready
         needfull = true
         if ch == 'L' {
-            if askname(&s_load) {
+            if browse_load() {
+                if not csv_load() {
+                    io_fail()
+                } else {
+                    dirty = false
+                    cc = 0
+                    cr = 0
+                    vc = 0
+                    vr = 0
+                }
+            } else if askname(&s_load) {
                 if not csv_load() {
                     io_fail()
                 } else {

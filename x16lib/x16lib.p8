@@ -8602,6 +8602,444 @@ cx {
         }}
     }
 
+    ; ui/filepick
+    sub fp_cache(uword addr, ubyte hibit) {
+        %asm {{
+        .if BANK_X16_USE_FILEPICK
+            lda $00
+            pha
+            lda #BANK_X16_USE_FILEPICK
+            sta $00
+        .endif
+            lda p8v_addr
+            sta $22
+            lda p8v_addr+1
+            sta $23
+            lda p8v_hibit
+            sta $24
+            jsr x16src.fp_cache
+        .if BANK_X16_USE_FILEPICK
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub fp_filter(uword pattern) {
+        %asm {{
+        .if BANK_X16_USE_FILEPICK
+            lda $00
+            pha
+            lda #BANK_X16_USE_FILEPICK
+            sta $00
+        .endif
+            lda p8v_pattern
+            sta $22
+            lda p8v_pattern+1
+            sta $23
+            jsr x16src.fp_filter
+        .if BANK_X16_USE_FILEPICK
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub fp_primary(uword pattern) {
+        %asm {{
+        .if BANK_X16_USE_FILEPICK
+            lda $00
+            pha
+            lda #BANK_X16_USE_FILEPICK
+            sta $00
+        .endif
+            lda p8v_pattern
+            sta $22
+            lda p8v_pattern+1
+            sta $23
+            jsr x16src.fp_primary
+        .if BANK_X16_USE_FILEPICK
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub fp_style(ubyte panel, ubyte bar, ubyte sel) {
+        %asm {{
+        .if BANK_X16_USE_FILEPICK
+            lda $00
+            pha
+            lda #BANK_X16_USE_FILEPICK
+            sta $00
+        .endif
+            lda p8v_panel
+            ldx p8v_bar
+            ldy p8v_sel
+            jsr x16src.fp_style
+        .if BANK_X16_USE_FILEPICK
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub fp_heading(uword text) {
+        %asm {{
+        .if BANK_X16_USE_FILEPICK
+            lda $00
+            pha
+            lda #BANK_X16_USE_FILEPICK
+            sta $00
+        .endif
+            lda p8v_text
+            sta $22
+            lda p8v_text+1
+            sta $23
+            jsr x16src.fp_heading
+        .if BANK_X16_USE_FILEPICK
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub fp_footing(uword text) {
+        %asm {{
+        .if BANK_X16_USE_FILEPICK
+            lda $00
+            pha
+            lda #BANK_X16_USE_FILEPICK
+            sta $00
+        .endif
+            lda p8v_text
+            sta $22
+            lda p8v_text+1
+            sta $23
+            jsr x16src.fp_footing
+        .if BANK_X16_USE_FILEPICK
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub fp_saveunder(ubyte on_, uword addr, ubyte hibit) {
+        %asm {{
+        .if BANK_X16_USE_FILEPICK
+            lda $00
+            pha
+            lda #BANK_X16_USE_FILEPICK
+            sta $00
+        .endif
+            lda p8v_addr
+            sta $22
+            lda p8v_addr+1
+            sta $23
+            lda p8v_hibit
+            sta $24
+            lda p8v_on_
+            jsr x16src.fp_saveunder
+        .if BANK_X16_USE_FILEPICK
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub fp_charset(ubyte n) {
+        %asm {{
+        .if BANK_X16_USE_FILEPICK
+            lda $00
+            pha
+            lda #BANK_X16_USE_FILEPICK
+            sta $00
+        .endif
+            lda p8v_n
+            jsr x16src.fp_charset
+        .if BANK_X16_USE_FILEPICK
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    sub fp_start_dir(uword path) {
+        %asm {{
+        .if BANK_X16_USE_FILEPICK
+            lda $00
+            pha
+            lda #BANK_X16_USE_FILEPICK
+            sta $00
+        .endif
+            lda p8v_path
+            sta $22
+            lda p8v_path+1
+            sta $23
+            jsr x16src.fp_start_dir
+        .if BANK_X16_USE_FILEPICK
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    ; -> A = FP_NONE (cancelled), FP_PICK (a file), FP_ALT (the second gesture)
+    sub fp_open() -> ubyte {
+        %asm {{
+        .if BANK_X16_USE_FILEPICK
+            lda $00
+            pha
+            lda #BANK_X16_USE_FILEPICK
+            sta $00
+        .endif
+            jsr x16src.fp_open
+            sta p8v_ret8
+        .if BANK_X16_USE_FILEPICK
+            pla
+            sta $00
+        .endif
+        }}
+        return ret8
+    }
+
+    ; -> A = as fp_open
+    sub fp_resume() -> ubyte {
+        %asm {{
+        .if BANK_X16_USE_FILEPICK
+            lda $00
+            pha
+            lda #BANK_X16_USE_FILEPICK
+            sta $00
+        .endif
+            jsr x16src.fp_resume
+            sta p8v_ret8
+        .if BANK_X16_USE_FILEPICK
+            pla
+            sta $00
+        .endif
+        }}
+        return ret8
+    }
+
+    sub fp_close() {
+        %asm {{
+        .if BANK_X16_USE_FILEPICK
+            lda $00
+            pha
+            lda #BANK_X16_USE_FILEPICK
+            sta $00
+        .endif
+            jsr x16src.fp_close
+        .if BANK_X16_USE_FILEPICK
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
+    ; -> X/Y = the absolute path of the chosen entry
+    sub fp_path() -> uword {
+        %asm {{
+        .if BANK_X16_USE_FILEPICK
+            lda $00
+            pha
+            lda #BANK_X16_USE_FILEPICK
+            sta $00
+        .endif
+            jsr x16src.fp_path
+            stx p8v_ret16
+            sty p8v_ret16+1
+        .if BANK_X16_USE_FILEPICK
+            pla
+            sta $00
+        .endif
+        }}
+        return ret16
+    }
+
+    ; -> X/Y = the chosen entry's name, without the directory
+    sub fp_name() -> uword {
+        %asm {{
+        .if BANK_X16_USE_FILEPICK
+            lda $00
+            pha
+            lda #BANK_X16_USE_FILEPICK
+            sta $00
+        .endif
+            jsr x16src.fp_name
+            stx p8v_ret16
+            sty p8v_ret16+1
+        .if BANK_X16_USE_FILEPICK
+            pla
+            sta $00
+        .endif
+        }}
+        return ret16
+    }
+
+    ; -> X/Y = the directory being browsed
+    sub fp_dir() -> uword {
+        %asm {{
+        .if BANK_X16_USE_FILEPICK
+            lda $00
+            pha
+            lda #BANK_X16_USE_FILEPICK
+            sta $00
+        .endif
+            jsr x16src.fp_dir
+            stx p8v_ret16
+            sty p8v_ret16+1
+        .if BANK_X16_USE_FILEPICK
+            pla
+            sta $00
+        .endif
+        }}
+        return ret16
+    }
+
+    ; -> carry SET when the chosen entry matches the primary pattern
+    sub fp_is_primary() -> bool {
+        %asm {{
+        .if BANK_X16_USE_FILEPICK
+            lda $00
+            pha
+            lda #BANK_X16_USE_FILEPICK
+            sta $00
+        .endif
+            jsr x16src.fp_is_primary
+            lda #0
+            rol  a
+            sta p8v_retbit
+        .if BANK_X16_USE_FILEPICK
+            pla
+            sta $00
+        .endif
+        }}
+        return retbit
+    }
+
+    ; -> carry SET when the name matches the pattern list
+    sub fp_match(uword name, uword pattern) -> bool {
+        %asm {{
+        .if BANK_X16_USE_FILEPICK
+            lda $00
+            pha
+            lda #BANK_X16_USE_FILEPICK
+            sta $00
+        .endif
+            lda p8v_name
+            sta $22
+            lda p8v_name+1
+            sta $23
+            lda p8v_pattern
+            sta $24
+            lda p8v_pattern+1
+            sta $25
+            jsr x16src.fp_match
+            lda #0
+            rol  a
+            sta p8v_retbit
+        .if BANK_X16_USE_FILEPICK
+            pla
+            sta $00
+        .endif
+        }}
+        return retbit
+    }
+
+    ; -> A = the panel's first row
+    sub fp_panel_top() -> ubyte {
+        %asm {{
+        .if BANK_X16_USE_FILEPICK
+            lda $00
+            pha
+            lda #BANK_X16_USE_FILEPICK
+            sta $00
+        .endif
+            jsr x16src.fp_panel_top
+            sta p8v_ret8
+        .if BANK_X16_USE_FILEPICK
+            pla
+            sta $00
+        .endif
+        }}
+        return ret8
+    }
+
+    ; -> A = the panel's left column
+    sub fp_panel_left() -> ubyte {
+        %asm {{
+        .if BANK_X16_USE_FILEPICK
+            lda $00
+            pha
+            lda #BANK_X16_USE_FILEPICK
+            sta $00
+        .endif
+            jsr x16src.fp_panel_left
+            sta p8v_ret8
+        .if BANK_X16_USE_FILEPICK
+            pla
+            sta $00
+        .endif
+        }}
+        return ret8
+    }
+
+    ; -> A = the panel's width in cells
+    sub fp_panel_width() -> ubyte {
+        %asm {{
+        .if BANK_X16_USE_FILEPICK
+            lda $00
+            pha
+            lda #BANK_X16_USE_FILEPICK
+            sta $00
+        .endif
+            jsr x16src.fp_panel_width
+            sta p8v_ret8
+        .if BANK_X16_USE_FILEPICK
+            pla
+            sta $00
+        .endif
+        }}
+        return ret8
+    }
+
+    ; -> A = how many entry rows the panel has
+    sub fp_panel_rows() -> ubyte {
+        %asm {{
+        .if BANK_X16_USE_FILEPICK
+            lda $00
+            pha
+            lda #BANK_X16_USE_FILEPICK
+            sta $00
+        .endif
+            jsr x16src.fp_panel_rows
+            sta p8v_ret8
+        .if BANK_X16_USE_FILEPICK
+            pla
+            sta $00
+        .endif
+        }}
+        return ret8
+    }
+
+    sub fp_redraw() {
+        %asm {{
+        .if BANK_X16_USE_FILEPICK
+            lda $00
+            pha
+            lda #BANK_X16_USE_FILEPICK
+            sta $00
+        .endif
+            jsr x16src.fp_redraw
+        .if BANK_X16_USE_FILEPICK
+            pla
+            sta $00
+        .endif
+        }}
+    }
+
     ; storage/dos -> A = status code
     sub dos_cmd(uword cmd, ubyte len_) -> ubyte {
         %asm {{
