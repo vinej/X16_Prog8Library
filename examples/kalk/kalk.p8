@@ -66,7 +66,7 @@ main {
     ubyte[64] ibuf
     ubyte ilen
     ubyte edit_key
-    ubyte[24] fname
+    ubyte[48] fname   ; a typed name is short; a browsed path is not
     ubyte fnlen
     ubyte[20] rngbuf
 

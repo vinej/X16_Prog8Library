@@ -21117,8 +21117,9 @@ filepick_op_setdir
     sta X16_P0
     lda fp_src+1
     sta X16_P1
-    jsr filepick_zlen
-    sty X16_P2
+    jsr filepick_zlen                   ; Y = length
+    lda X16_P0                  ; dos_chdir wants A/X = name, Y = length
+    ldx X16_P1
     jsr dos_chdir
     stz fp_sel
     stz fp_top
@@ -21344,8 +21345,9 @@ filepick_hop17
     sta X16_P0
     lda #>fp_nm
     sta X16_P1
-    jsr filepick_zlen
-    sty X16_P2
+    jsr filepick_zlen                   ; Y = length
+    lda #<fp_nm                 ; A/X = name, Y = length
+    ldx #>fp_nm
     jsr dos_chdir
     lda #<fp_nm
     sta X16_P0
