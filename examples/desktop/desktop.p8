@@ -23,15 +23,15 @@
 %import x16lib
 %import x16lib_const
 %import launcharg
+; X16_GATE X16_USE_FILEPICK_EDIT   -- n/e/d/c/v in the browser, and the
+; blue-on-yellow prompt that comes with them. kalk asks for the same
+; thing; without it the desktop's browser can only CHOOSE a file, which
+; is why its panel looked plainer than kalk's for no apparent reason.
 %zeropage dontuse         ; the library owns ZP $22-$31; keep Prog8 out of it
 
 main {
-    ; The browser's answers, from the library's ui/filepick.asm. Not in
-    ; x16lib_const: those come from the fixed-size blob, which cannot
-    ; carry a 3 KB browser.
-    const ubyte FPK_NONE = 0
-    const ubyte FPK_PICK = 1
-    const ubyte FPK_ALT  = 2
+    ; The browser's answers (x16c.FPK_*) come from the library's
+    ; ui/filepick.asm, via x16lib_const.
 
     ; ---- golden RAM ---------------------------------------------------
     const uword STUB     = $0400      ; the trampoline, 88 bytes
@@ -75,7 +75,18 @@ main {
     const ubyte P_MAX    = 41         ; path characters
     const uword CFG_LEN  = 16 + 16 * 64
 
+    ; The desktop's own files live in /DESKTOP, beside the icon library:
+    ; the list, the two wallpapers and the .ICO files a program can be
+    ; given. Only DESKTOP.PRG stays in the root, because the trampoline
+    ; reloads it by name from there and that path is the fragile one.
+    ;
+    ; Two spellings of the same file, and they are not interchangeable.
+    ; LOAD and OPEN honour a path in the name; SAVE does NOT -- it writes
+    ; to the current directory and ignores one -- so writing the list
+    ; means changing directory to cfgdir first and saving the bare name.
+    str cfgdir  = "/desktop"
     str cfgname = "desktop.cfg"
+    str cfgpath = "/desktop/desktop.cfg"
     ; 1040 bytes is past Prog8's 256-byte array ceiling, so the list lives
     ; in a banked-RAM window and is reached by address. Bank 1 is set once
     ; at start-up and never changed: nothing else here uses banked RAM,
@@ -133,8 +144,12 @@ main {
     ; which is why it lives in that board's own SDRAM rather than in VRAM,
     ; where it would not fit. Its palette is independent of VERA's, so it
     ; cannot disturb the 16 colours the text layer draws with.
-    str wall   = "wall.bmx"           ; 640x480, VERA_2
-    str wall_lo = "wallo.bmx"         ; 320x240, VERA layer 0
+    ; Absolute, so the wallpaper is found whatever directory a launched
+    ; program left us standing in. bmx_load opens the file, and OPEN
+    ; honours a path -- which is what makes the old chdir-to-root dance
+    ; unnecessary here.
+    str wall   = "/desktop/wall.bmx"   ; 640x480, VERA_2
+    str wall_lo = "/desktop/wallo.bmx" ; 320x240, VERA layer 0
 
     ; What a fresh card gets before anyone has arranged anything. Just the
     ; two programs that ship beside the desktop: everything else is a
@@ -146,6 +161,11 @@ main {
     ubyte[] bars  = [11, 5, 9, 11, 9]     ; a dark title stripe; never the
                                       ; desktop blue, which would read as a hole
     ubyte[] edges = [1, 1, 1, 1, 1]
+
+    ; Where an icon file's name is built, big enough for the longest
+    ; path a record can hold plus ".ico" and a terminator.
+    const ubyte ICOP_MAX = 47
+    ubyte[48] icopath
 
     uword[MAXICON] ix
     uword[MAXICON] iy
@@ -417,7 +437,7 @@ main {
         ; true here is "there is no list yet", not "there is one". Reading
         ; it the other way round wipes the magic on every successful load,
         ; and the desktop silently re-seeds itself each time you come back.
-        if cx.fs_load(&cfgname, len(cfgname), 8, x16c.FS_SA_ADDR, CFG)
+        if cx.fs_load(&cfgpath, len(cfgpath), 8, x16c.FS_SA_ADDR, CFG)
             @(CFG) = 0                ; no file yet: fall through to the seed
         if @(CFG) == 'd' and @(CFG+1) == 'k' and @(CFG+2) == 't' and @(CFG+3) == '1' {
             nicons = @(CFG+4)
@@ -453,9 +473,18 @@ main {
         ; wherever it was browsing, so without this the list gets written
         ; into whatever folder you happened to be looking at: a stray
         ; DESKTOP.CFG turned up inside a game's directory this way.
-        cx.dos_chdir(&root, len(root))
+        cx.dos_chdir(&cfgdir, len(cfgdir))
         void cx.dos_delete(&cfgname, len(cfgname))  ; SAVE will not overwrite
         void cx.fs_save(&cfgname, len(cfgname), 8, CFG, CFG + CFG_LEN)
+        ; ...and put the drive back at the root before leaving. Saving
+        ; the list is the LAST thing that happens before the trampoline
+        ; loads the program, and the trampoline loads it by the stored
+        ; path -- which for anything in the root is relative ("kalk.prg",
+        ; "imgview.prg"). Leave the drive in /DESKTOP and that LOAD looks
+        ; for them there and comes straight back to the desktop. The old
+        ; code chdir'd here to "/" and every root program depended on it
+        ; without saying so.
+        cx.dos_chdir(&root, len(root))
     }
 
     ; What the desktop looks like before anyone has arranged it.
@@ -491,9 +520,65 @@ main {
         return pfill[rec_icon(n)]
     }
 
+    ; Build "<program path>.ico" -- or ".i16" on the small screen --
+    ; into icopath. -> its length, or 0 when there is nothing to build.
+    ;
+    ; The extension is REPLACED, not appended: a record holds
+    ; "apps/paint/paint.prg" and the icon beside it is PAINT.ICO. Only a
+    ; dot after the last slash counts, or a directory with a dot in its
+    ; name would cut the path off at the wrong place.
+    ;
+    ; Lower case on purpose, like every other filename here: Prog8's
+    ; PETSCII maps a-z to $41-$5A, which the KERNAL reads back as the
+    ; upper-case name the card actually stores.
+    sub icon_file(ubyte n) -> ubyte {
+        uword p = rec_path(n)
+        ubyte i = 0
+        ubyte dot = 0                 ; index of the dot, PLUS ONE, so
+        while i < P_MAX {             ; that 0 can mean "none seen yet"
+            ubyte ch = @(p + i)
+            if ch == 0
+                break
+            if ch == '/'
+                dot = 0               ; a dot in a folder name does not count
+            if ch == '.'
+                dot = i + 1
+            i++
+        }
+        if i == 0
+            return 0
+        ubyte cut = i
+        if dot != 0
+            cut = dot - 1
+        if cut > ICOP_MAX - 5
+            return 0
+        ubyte j = 0
+        while j < cut {
+            icopath[j] = @(p + j)
+            j++
+        }
+        icopath[j] = '.'
+        j++
+        icopath[j] = 'i'
+        j++
+        if hires {
+            icopath[j] = 'c'
+            j++
+            icopath[j] = 'o'
+        } else {
+            icopath[j] = '1'
+            j++
+            icopath[j] = '6'
+        }
+        j++
+        icopath[j] = 0
+        return j
+    }
+
     ; 32x32 at 4bpp: two pixels to a byte, sixteen bytes to a row.
     sub make_icons() {
         ubyte n = 0
+        bool tried = false
         while n < nicons {
             uword off = n              ; n * ibytes overflows a byte, so
             off *= ibytes              ; keep the multiply in a word
@@ -510,12 +595,29 @@ main {
                 }
                 row++
             }
+            ; A program's own icon file, if it has one, lands straight on
+            ; top of the preset just drawn. Done in that order because
+            ; fs_vload reports nothing back -- it is the one loader here
+            ; with no return value -- so there is no way to ask whether
+            ; the file was there. Drawing first makes the preset the
+            ; fallback by construction: no file, nothing overwritten.
+            ubyte fn = icon_file(n)
+            if fn != 0 {
+                cx.fs_vload(&icopath, fn, 8, IVBANK, base)
+                tried = true
+            }
             ; attach the image and give the sprite its shape
             cx.sprite_image_at(n + 1, IVBANK, base, x16c.SPRITE_MODE_4BPP)
             cx.sprite_size(n + 1, sprsize, sprsize, 0)
             cx.sprite_z(n + 1, x16c.SPRITE_Z_FRONT)
             n++
         }
+        ; Most programs have no icon, so most of those loads failed, and
+        ; each failure leaves "62,FILE NOT FOUND" sitting on the command
+        ; channel. Reading it once clears it -- otherwise the next thing
+        ; to ask the drive how it is gets an error that belongs to us.
+        if tried
+            void cx.dos_status()
     }
 
     sub place_all() {
@@ -926,13 +1028,22 @@ main {
     const ubyte A_PANEL = 6 | (15 << 4)   ; blue on light grey
     const ubyte A_BAR   = 6 | (15 << 4)   ; ...header and footer to match
     const ubyte A_SEL   = 15 | (6 << 4)   ; inverted: the cursor line
-    const ubyte A_EDIT  = 6 | (15 << 4)   ; blue on light grey: a typing field
+    ; Taken from the library rather than restated, so the desktop's own
+    ; typing fields cannot drift away from the browser's. They had:
+    ; A_EDIT was blue on light grey while filepick's edit field is blue
+    ; on yellow, and the two sat one dialog apart looking unrelated.
+    const ubyte A_EDIT   = x16c.FPK_AEDIT     ; $76, blue on yellow
+    const ubyte A_CURSOR = x16c.FPK_ACURSOR   ; $67, inverted: a block
 
     str pk_all   = "*.*"
     str pk_prg   = "*.prg"
     str pk_head  = "programs in "
-    str pk_foot  = "double click opens/runs   right click adds   esc closes"
-    str pk_foot4 = "dbl-click runs  right adds  esc"
+    ; The edit keys have to be named here or nobody finds them: they are
+    ; the browser's, not the desktop's, and nothing else on screen hints
+    ; that the panel can rename or delete anything. kalk's footer says
+    ; the same thing in the same words.
+    str pk_foot  = "dbl-click runs  right adds  n/e/d/c/v edit  esc closes"
+    str pk_foot4 = "dbl runs  right adds  nedcv  esc"
 
     ubyte[64] fullpath
     ; The file an "open with" launch hands to the program it starts.
@@ -976,7 +1087,7 @@ main {
     sub picker() -> bool {
         pk_setup()
         ubyte act = cx.fp_open()
-        while act == FPK_ALT {
+        while act == x16c.FPK_ALT {
             ; right click, or 'a': keep it on the desktop. Only a
             ; program can be kept -- an icon that cannot be launched
             ; would be furniture.
@@ -987,7 +1098,7 @@ main {
             }
             act = cx.fp_resume()
         }
-        if act != FPK_PICK {
+        if act != x16c.FPK_PICK {
             cx.fp_close()
             return false
         }
@@ -1121,8 +1232,13 @@ main {
             cx.screen_addr(cx.fp_panel_top() + 3, pk_left() + 2)
             if n != 0
                 cx.screen_blit(&editbuf, n, A_EDIT)
+            ; A block, not an underscore: a space drawn with the cursor
+            ; attribute is inverted, so it fills the cell the way the
+            ; browser's edit field does. An underscore on a yellow field
+            ; is nearly invisible, which is half of why this dialog did
+            ; not look like the one next door.
             cx.screen_addr(cx.fp_panel_top() + 3, pk_left() + 2 + n)
-            cx.screen_blit("_", 1, A_EDIT)
+            cx.screen_blit(" ", 1, A_CURSOR)
 
             ubyte k = cx.key_wait()
             if k == $0d {
@@ -1251,7 +1367,15 @@ main {
     ; roughly known -- rows 4 through 8 all say "run", and whichever one
     ; the second RETURN lands on does the job.
     sub basic_launch() {
-        cx.dos_chdir(&folder, slen(&folder))  ; the program's own directory
+        ; Same guard as launch_path: an empty folder means the root, not
+        ; "wherever we are". Harmless today because launch_path has just
+        ; put us there, but a chdir to "" is not a chdir to "/", and the
+        ; next person to call this from somewhere else would find out the
+        ; hard way.
+        if folder[0] != 0
+            cx.dos_chdir(&folder, slen(&folder))  ; the program's own directory
+        else
+            cx.dos_chdir(&root, len(root))
         cx.mse_hide()
         cx.sprites_off()
         cx.gfx8h_off()
@@ -1324,8 +1448,17 @@ main {
             hasarg = false
         }
         split_path(path, slen(path))
+        ; Say where we are, ALWAYS -- a program in the root has no folder
+        ; to change to, and leaving the drive wherever it happened to be
+        ; is not the same thing as being at the root. This used to work
+        ; by luck: cfg_save ran first and chdir'd to "/" on its way past.
+        ; The moment the list moved to /DESKTOP that luck ran out and
+        ; every root program -- imgview, kalk, shell -- stopped loading,
+        ; because fs_prg_entry was looking for them in /DESKTOP.
         if folder[0] != 0
             cx.dos_chdir(&folder, slen(&folder))
+        else
+            cx.dos_chdir(&root, len(root))
         uword name = &leaf
         ubyte n = slen(&leaf)
         uword centry = cx.fs_prg_entry(name, n, 8)

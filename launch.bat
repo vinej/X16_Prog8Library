@@ -36,7 +36,8 @@ python "%HERE%tools\img_put.py" "%IMG%" ^
     --as DESKTOP.PRG "%HERE%build\desktop.prg" ^
     --as KALK.PRG    "%HERE%build\kalk.prg" ^
     --as IMGVIEW.PRG "%HERE%build\imgview.prg" ^
-    --as WALL.BMX    "%HERE%build\WALL.BMX" ^
+    --as /DESKTOP/WALL.BMX  "%HERE%build\WALL.BMX" ^
+    --as /DESKTOP/WALLO.BMX "%HERE%build\WALLO.BMX" ^
     --as IMAGE.BMX   "%HERE%build\IMAGE.BMX"
 if errorlevel 1 (
     echo launch: copying to the card failed
