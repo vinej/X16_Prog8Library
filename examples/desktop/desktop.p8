@@ -148,8 +148,62 @@ main {
     ; program left us standing in. bmx_load opens the file, and OPEN
     ; honours a path -- which is what makes the old chdir-to-root dance
     ; unnecessary here.
-    str wall   = "/desktop/wall.bmx"   ; 640x480, VERA_2
-    str wall_lo = "/desktop/wallo.bmx" ; 320x240, VERA layer 0
+    str wall   = "/desktop/wall.bmx"   ; the default, on a fresh card
+    str wall_lo = "/desktop/wallo.bmx"
+    str wpre    = "/desktop/"
+    ; The chosen wallpaper's stem lives in the spare bytes of the config
+    ; header -- eight characters, which is why mkwalls.py names them
+    ; PICnn. A config written before this has zeros there, so an empty
+    ; stem means "the default" and the file format did not have to change
+    ; at all: no magic bump, no migration, old desktops keep working.
+    const ubyte C_WALL = 5             ; CFG+5..CFG+13, NUL-terminated
+    const ubyte WSTEM_MAX = 8
+    ubyte[24] wallpath
+
+    ; Fill wallpath with the wallpaper to load. -> its length.
+    ; The two sizes are different FILES, not the same one scaled:
+    ; <STEM>.BMX is 640x480 for the VERA_2 board, <STEM>.BMO is 320x240
+    ; with its palette at index 16 so the text colours survive.
+    sub wall_name() -> ubyte {
+        ubyte j = 0
+        if @(CFG + C_WALL) == 0 {
+            uword src = &wall
+            ubyte n = len(wall)
+            if not hires {
+                src = &wall_lo
+                n = len(wall_lo)
+            }
+            while j < n {
+                wallpath[j] = @(src + j)
+                j++
+            }
+            wallpath[j] = 0
+            return j
+        }
+        while wpre[j] != 0 {
+            wallpath[j] = wpre[j]
+            j++
+        }
+        ubyte k = 0
+        while k < WSTEM_MAX and @(CFG + C_WALL + k) != 0 {
+            wallpath[j] = @(CFG + C_WALL + k)
+            j++
+            k++
+        }
+        wallpath[j] = '.'
+        j++
+        wallpath[j] = 'b'
+        j++
+        wallpath[j] = 'm'
+        j++
+        if hires
+            wallpath[j] = 'x'
+        else
+            wallpath[j] = 'o'
+        j++
+        wallpath[j] = 0
+        return j
+    }
 
     ; What a fresh card gets before anyone has arranged anything. Just the
     ; two programs that ship beside the desktop: everything else is a
@@ -178,6 +232,7 @@ main {
     uword dragdx
     uword dragdy
     bool  mdown
+    bool  rdown                       ; ...and the same latch for the right
     uword lastclick
     ubyte lasticon = 255
     ; How long the second click of a double click may take to arrive, in
@@ -189,7 +244,7 @@ main {
     ; from two deliberate clicks, which is what was wanted anyway.
     const uword DBLCLICK = 60
 
-    str title    = " X16 Desktop -- drag an icon, double click runs it, Run/Stop quits"
+    str title    = " X16 Desktop -- drag, dbl-click runs, right click = icon, Run/Stop"
     str title_lo = " X16 Desktop"
 
     sub titletext() -> uword {
@@ -654,12 +709,14 @@ main {
         } else {
             if hires {
                 ; 640x480 into the VERA_2 board's own SDRAM
-                cx.bmx_load_hires(&wall, len(wall), 8)
+                ubyte wn = wall_name()
+            cx.bmx_load_hires(&wallpath, wn, 8)
             } else {
                 ; 320x240 into VERA layer 0 at $00000. Its palette starts
                 ; at index 16 (img2bmx --lores puts it there) so the 16
                 ; system colours the text draws with survive the load.
-                void cx.bmx_load(&wall_lo, len(wall_lo), 8, 0, $0000)
+                ubyte wn2 = wall_name()
+            void cx.bmx_load(&wallpath, wn2, 8, 0, $0000)
             }
             if cx.bmx_lasterr() == 0 {    ; the carry is unreachable from
                 havewall = true           ; here, but the code behind it
@@ -864,12 +921,55 @@ main {
                 return
             if k == 'p'
                 open_picker()
+            ; 'i' re-icons whatever was last clicked. It needs a target,
+            ; and the last click is the only selection this desktop has.
+            if k == 'i' and lasticon != 255 and lasticon < nicons
+                change_icon(lasticon)
 
             ubyte btn = cx.mse_get()
             uword mx = peekw(x16c.X16_P0)
             uword my = peekw(x16c.X16_P0 + 2)
 
-            if btn & 1 != 0 {
+            ; Right click on an icon opens the icon panel for it. Latched
+            ; like the left button: mse_get is polled every frame, so
+            ; without this the panel would open, and the button still
+            ; being down when we came back would open it straight again.
+            if btn & x16c.MSE_BUTTON_RIGHT != 0 {
+                if not rdown {
+                    rdown = true
+                    ubyte hit = icon_at(mx, my)
+                    if hit != 255 {
+                        change_icon(hit)
+                    } else {
+                        ; ...and on the desktop itself, the desktop's own
+                        ; background. Same gesture, and what it acts on is
+                        ; whatever is under the pointer.
+                        icons_z(x16c.SPRITE_Z_DISABLED)
+                        choose_wall()
+                        ; blank() first and reveal() last, exactly as
+                        ; start() does. The wallpaper is 307 KB and the
+                        ; load is visible if layer 1 is on: you watch the
+                        ; old picture flash up, the new one wipe down
+                        ; over it, and the text land last. Dark through
+                        ; the load, then one register write turns the
+                        ; whole desktop on at once.
+                        cx.mse_hide()
+                        blank()
+                        paint()
+                        make_icons()
+                        icons_z(x16c.SPRITE_Z_FRONT)
+                        reveal()
+                        cx.sprites_on()
+                        cx.mse_config(1, scrw, scrh)
+                        cx.mse_show_keep()
+                        mdown = false
+                    }
+                }
+            } else {
+                rdown = false
+            }
+
+            if btn & x16c.MSE_BUTTON_LEFT != 0 {
                 if not mdown {
                     mdown = true
                     uword zx = scrw
@@ -943,6 +1043,522 @@ main {
         } else {
             pokew(IMAINSAV, v)
         }
+    }
+
+    ; ---- giving a program a different icon -------------------------------
+    ; The chosen file is COPIED next to the program as <program>.ICO
+    ; rather than remembered in the list. Two reasons: the record is
+    ; exactly full at 64 bytes, so remembering a name would mean growing
+    ; it and migrating every saved desktop -- and an icon that lives
+    ; beside its program is then found by the same code that finds the
+    ; generated ones, with nothing new to go wrong.
+    str icodir  = "/desktop"
+    str icofilt = "*.ico"
+    str icohead = "icons in "
+    str icofoot = "right click shows it   enter takes it   esc cancels"
+    ubyte[24] iconame
+    ubyte[48] icosrc
+    ubyte[24] icodest
+    ; Scratch inside the config's bank window, past the list itself.
+    ; CFG_LEN is 1040, the window is 8 KB, and bank CFGBANK is already
+    ; mapped -- so this costs no low RAM at all.
+    const uword ICOBUF = CFG + $0800
+
+    ; Copy /DESKTOP/<iconame> to <program dir>/<leaf>.<ext>, both sizes.
+    ; -> false if the source could not be read.
+    sub copy_one(uword ext, uword nbytes) -> bool {
+        ubyte i = 0
+        while icodir[i] != 0 {
+            icosrc[i] = icodir[i]
+            i++
+        }
+        icosrc[i] = '/'
+        i++
+        ubyte j = 0
+        while iconame[j] != 0 and iconame[j] != '.' {
+            icosrc[i] = iconame[j]
+            i++
+            j++
+        }
+        ubyte k = 0
+        while @(ext + k) != 0 {
+            icosrc[i] = @(ext + k)
+            i++
+            k++
+        }
+        icosrc[i] = 0
+        ; SA 0, so LOAD eats the file's 2-byte header and ICOBUF holds
+        ; the pixels alone. SAVE then writes a fresh header of its own,
+        ; which is why the copy comes out the same size as the original.
+        if cx.fs_load(&icosrc, i, 8, x16c.FS_SA_ADDR, ICOBUF)
+            return false
+        ubyte d = 0
+        while leaf[d] != 0 and leaf[d] != '.' {
+            icodest[d] = leaf[d]
+            d++
+        }
+        k = 0
+        while @(ext + k) != 0 {
+            icodest[d] = @(ext + k)
+            d++
+            k++
+        }
+        icodest[d] = 0
+        void cx.dos_delete(&icodest, d)     ; SAVE will not overwrite
+        void cx.fs_save(&icodest, d, 8, ICOBUF, ICOBUF + nbytes)
+        return true
+    }
+
+    ; ---- the icon grid ---------------------------------------------------
+    ; Choosing a picture from a list of filenames is choosing blind, and
+    ; filepick cannot say "the highlight moved" -- so this does not use
+    ; filepick at all. It reads /DESKTOP itself and shows the ICONS, all
+    ; of them at once, which answers the question the panel is asking
+    ; instead of describing it. You pick the one you can see.
+    const ubyte GRIDCOLS = 6
+    const ubyte GRIDROWS = 4
+    const ubyte GRIDMAX  = 24         ; GRIDCOLS * GRIDROWS, one page
+    ; How many names are collected in all. /DESKTOP holds one per program,
+    ; so this is the ceiling on what can be offered -- 120 names at 16
+    ; bytes is 1920, which still fits the config bank's window alongside
+    ; the list and the copy buffer.
+    const ubyte GRIDTOTAL = 120
+    ubyte gridpage
+    ubyte upcol                       ; where the [up]/[down] buttons sit
+    ubyte dncol
+    ; The grid serves two callers at two sizes -- icons at the desktop's
+    ; own icon size, wallpapers at 64x64 because a photograph needs the
+    ; room to be recognisable -- so the cell geometry is set by whoever
+    ; opens it rather than baked in.
+    uword gridpx                      ; pixels across one image
+    uword gridbytes                   ; ...and what that costs in VRAM
+    ubyte gridsz                      ; the SPRITE_SIZE_* code for it
+    ubyte gridcols
+    ubyte gridmax                     ; how many fit on one page
+    const ubyte GRIDNLEN = 16
+    const ubyte GRIDSPR  = 21         ; the desktop owns 1..MAXICON
+    ; The names live in the config's bank window, past the list and past
+    ; the copy buffer, so a grid of 24 costs no low RAM.
+    const uword GRIDNAMES = CFG + $0C00
+
+    sub grid_name(ubyte i) -> uword {
+        uword a = i
+        a *= GRIDNLEN
+        return GRIDNAMES + a
+    }
+
+    ; Read /DESKTOP and keep the .ICO names. -> how many were found.
+    ; The .I16 companions are skipped: they are the same icons at the
+    ; other size, and offering both would show every icon twice.
+    sub grid_scan() -> ubyte {
+        ubyte n = 0
+        ; Stand in the directory and ask for "$", rather than handing the
+        ; path to dir_open. dir_open passes what it is given straight to
+        ; SETNAM without prepending the dollar, so a bare "/desktop" is
+        ; opened as a FILE and the listing comes back empty -- which made
+        ; right-click look like it did nothing at all. A length of 0 is
+        ; the documented way to ask for the current directory.
+        cx.dos_chdir(&icodir, len(icodir))
+        if cx.dir_open(&icodir, 0, 8) {
+            cx.dos_chdir(&root, len(root))
+            return 0
+        }
+        while n < GRIDTOTAL {
+            if not cx.dir_next(&iconame, len(iconame))
+                break
+            ubyte l = 0
+            while iconame[l] != 0 and l < GRIDNLEN
+                l++
+            if l > 4 {
+                if iconame[l - 4] == '.' and iconame[l - 3] == 'i' and
+                   iconame[l - 2] == 'c' and iconame[l - 1] == 'o' {
+                    uword d = grid_name(n)
+                    ubyte j = 0
+                    while j < l and j < GRIDNLEN - 1 {
+                        @(d + j) = iconame[j]
+                        j++
+                    }
+                    @(d + j) = 0
+                    n++
+                }
+            }
+        }
+        cx.dir_close()
+        cx.dos_chdir(&root, len(root))
+        return n
+    }
+
+    ; Where cell i sits, in pixels.
+    sub grid_x(ubyte i) -> uword {
+        uword c = i % gridcols
+        c *= gridpx
+        c += (i % gridcols) * 8
+        return gridx0 + c
+    }
+    sub grid_y(ubyte i) -> uword {
+        uword r = i / gridcols
+        r *= gridpx
+        r += (i / gridcols) * 8
+        return gridy0 + r
+    }
+    uword gridx0
+    uword gridy0
+
+    ; Load every found icon into its own VRAM slot and hang a sprite on
+    ; it. The slots start past the sixteen the desktop's own icons use,
+    ; so nothing here can scribble on one of those.
+    ; How many icons page `gridpage` holds.
+    sub grid_oncount(ubyte total) -> ubyte {
+        ubyte first = gridpage * gridmax
+        if first >= total
+            return 0
+        ubyte left = total - first
+        if left > gridmax
+            return gridmax
+        return left
+    }
+
+    sub grid_pages(ubyte total) -> ubyte {
+        return (total + gridmax - 1) / gridmax
+    }
+
+    sub grid_show(ubyte total) {
+        ubyte count = grid_oncount(total)
+        ubyte base_i = gridpage * gridmax
+        ubyte i = 0
+        while i < count {
+            ubyte k = 0
+            while icodir[k] != 0 {
+                icosrc[k] = icodir[k]
+                k++
+            }
+            icosrc[k] = '/'
+            k++
+            uword s = grid_name(base_i + i)
+            ubyte j = 0
+            while @(s + j) != 0 {
+                icosrc[k] = @(s + j)
+                k++
+                j++
+            }
+            icosrc[k] = 0
+            uword off = MAXICON + 1
+            off *= ibytes                 ; clear of the desktop's own icons
+            uword slot = i
+            slot *= gridbytes
+            uword base = IVRAM + off + slot
+            cx.fs_vload(&icosrc, k, 8, IVBANK, base)
+            cx.sprite_image_at(GRIDSPR + i, IVBANK, base, x16c.SPRITE_MODE_4BPP)
+            cx.sprite_size(GRIDSPR + i, gridsz, gridsz, 0)
+            cx.sprite_z(GRIDSPR + i, x16c.SPRITE_Z_FRONT)
+            cx.sprite_pos(GRIDSPR + i, grid_x(i), grid_y(i))
+            i++
+        }
+        ; Every load that missed left an error on the command channel.
+        void cx.dos_status()
+    }
+
+    ; Always all GRIDMAX slots, not just the ones in use: a short last
+    ; page would otherwise leave the previous page's icons on screen.
+    sub grid_hide() {
+        ubyte i = 0
+        while i < GRIDMAX {
+            cx.sprite_z(GRIDSPR + i, x16c.SPRITE_Z_DISABLED)
+            i++
+        }
+    }
+
+    ; -> the chosen index within the WHOLE list, or 255.
+    sub grid_pick(ubyte total) -> ubyte {
+        ; A box big enough for the grid, in the middle of the screen.
+        ubyte cw = lsb(gridpx >> 3) + 1       ; cell width in characters
+        ubyte grows = (gridmax + gridcols - 1) / gridcols
+        ubyte boxw = cw * gridcols + 2
+        ubyte boxh = cw * grows + 3
+        ubyte bx = (scrw - boxw) / 2
+        ubyte by = (scrh - boxh) / 2
+        ubyte r = 0
+        while r < boxh {
+            cx.screen_addr(by + r, bx)
+            cx.screen_blitfill(boxw, A_PANEL, ' ')
+            r++
+        }
+        gridx0 = bx + 1
+        gridx0 <<= 3
+        gridy0 = by + 1
+        gridy0 <<= 3
+        gridpage = 0
+        ubyte npages = grid_pages(total)
+        upcol = bx + boxw - 12
+        dncol = bx + boxw - 7
+        bool redraw = true
+        cx.mse_show_keep()            ; the pointer is already configured
+        bool held = false
+        while true {
+            if redraw {
+                redraw = false
+                grid_hide()
+                grid_show(total)
+                cx.screen_addr(by, bx + 1)
+                cx.screen_blitfill(boxw - 2, A_BAR, ' ')
+                cx.screen_addr(by, bx + 1)
+                cx.screen_blit("click an icon", 13, A_BAR)
+                if npages > 1 {
+                    cx.screen_addr(by, bx + 15)
+                    cx.screen_blit(cx.u8_to_dec(gridpage + 1), 1, A_BAR)
+                    cx.screen_blit("/", 1, A_BAR)
+                    cx.screen_blit(cx.u8_to_dec(npages), 1, A_BAR)
+                    ; Buttons rather than named keys: they say what they
+                    ; do without being explained, and the same two cells
+                    ; answer a click and a cursor key.
+                    cx.screen_addr(by, upcol)
+                    if gridpage != 0
+                        cx.screen_blit("[up]", 4, A_SEL)
+                    else
+                        cx.screen_blit("[up]", 4, A_BAR)
+                    cx.screen_addr(by, dncol)
+                    if gridpage + 1 < npages
+                        cx.screen_blit("[down]", 6, A_SEL)
+                    else
+                        cx.screen_blit("[down]", 6, A_BAR)
+                }
+            }
+            ubyte k = cx.key_get()
+            if k == $1b or k == $03
+                return 255
+            ; The cursor keys do what the two buttons do.
+            if k == $91 and gridpage != 0 {         ; cursor up
+                gridpage--
+                redraw = true
+            }
+            if k == $11 and gridpage + 1 < npages { ; cursor down
+                gridpage++
+                redraw = true
+            }
+            ubyte btn = cx.mse_get()
+            uword mx = peekw(x16c.X16_P0)
+            uword my = peekw(x16c.X16_P0 + 2)
+            if btn & x16c.MSE_BUTTON_LEFT != 0 {
+                if not held {
+                    held = true
+                    ; The two buttons first: they sit on the header row,
+                    ; above every icon, so a click there is never a click
+                    ; on the grid.
+                    ubyte cc = lsb(mx >> 3)
+                    ubyte cr = lsb(my >> 3)
+                    if cr == by and npages > 1 {
+                        if cc >= upcol and cc < upcol + 4 and gridpage != 0 {
+                            gridpage--
+                            redraw = true
+                        }
+                        if cc >= dncol and cc < dncol + 6 and gridpage + 1 < npages {
+                            gridpage++
+                            redraw = true
+                        }
+                    }
+                    ubyte count = grid_oncount(total)
+                    ubyte i = 0
+                    while i < count {
+                        uword gx = grid_x(i)
+                        uword gy = grid_y(i)
+                        if mx >= gx and mx < gx + gridpx and my >= gy and my < gy + gridpx
+                            return gridpage * gridmax + i
+                        i++
+                    }
+                }
+            } else {
+                held = false
+            }
+        }
+        return 255
+    }
+
+    const ubyte PREVSPR = 20          ; icons own sprites 1..MAXICON
+    sub preview_icon() {
+        ubyte n = cx.fp_copy_name(&iconame, len(iconame))
+        if n == 0
+            return
+        ubyte i = 0
+        while icodir[i] != 0 {
+            icosrc[i] = icodir[i]
+            i++
+        }
+        icosrc[i] = '/'
+        i++
+        ubyte j = 0
+        while j < n {
+            icosrc[i] = iconame[j]
+            i++
+            j++
+        }
+        icosrc[i] = 0
+        ; Its own VRAM slot, straight after the sixteen the desktop's own
+        ; icons use, so previewing never scribbles on one of them.
+        uword off = MAXICON
+        off *= ibytes
+        uword base = IVRAM + off
+        cx.fs_vload(&icosrc, i, 8, IVBANK, base)
+        cx.sprite_image_at(PREVSPR, IVBANK, base, x16c.SPRITE_MODE_4BPP)
+        cx.sprite_size(PREVSPR, sprsize, sprsize, 0)
+        cx.sprite_z(PREVSPR, x16c.SPRITE_Z_FRONT)
+        ; Inside the panel's own top-right corner, a character clear of
+        ; both edges. Off at the screen edge it read as an ornament that
+        ; had nothing to do with the list; sitting in the panel it is
+        ; obviously the answer to the question the panel is asking.
+        ;
+        ; It covers the right end of the top few rows, which is empty --
+        ; filenames are left-aligned -- and SPRITE_Z_FRONT already puts
+        ; it in front of layer 1, so no z-order change is needed. One row
+        ; down, so the heading stays readable.
+        uword px = cx.fp_panel_left()
+        px += cx.fp_panel_width()
+        px <<= 3                      ; columns -> pixels
+        px -= iww                      ; ...the icon's own width
+        px -= 8                        ; ...and a character of margin
+        uword py = cx.fp_panel_top()
+        py++
+        py <<= 3
+        cx.sprite_pos(PREVSPR, px, py)
+    }
+
+    ; ---- the wallpaper chooser -------------------------------------------
+    ; Right click on the desktop itself, where there is no icon. The list
+    ; is names rather than thumbnails: a wallpaper is 300 KB and there is
+    ; nowhere to put ten of them at once, so this shows what is on offer
+    ; and applies the choice -- the desktop then IS the preview.
+    str wallhead = "wallpaper   click one   esc"
+    sub wall_scan() -> ubyte {
+        ubyte n = 0
+        cx.dos_chdir(&icodir, len(icodir))
+        if cx.dir_open(&icodir, 0, 8) {
+            cx.dos_chdir(&root, len(root))
+            return 0
+        }
+        while n < GRIDTOTAL {
+            if not cx.dir_next(&iconame, len(iconame))
+                break
+            ubyte l = 0
+            while iconame[l] != 0 and l < GRIDNLEN
+                l++
+            ; The THUMBNAILS, not the wallpapers. Each picture has a
+            ; 32x32 .THM beside it in exactly the icon format, so the
+            ; same grid that chooses an icon can show the pictures --
+            ; the wallpapers themselves are 300 KB and there is nowhere
+            ; to hold ten at once. The whole name is kept, because
+            ; grid_show loads by it; the stem is taken off at the end.
+            if l > 4 {
+                if iconame[l - 4] == '.' and iconame[l - 3] == 't' and
+                   iconame[l - 2] == 'h' and iconame[l - 1] == 'm' {
+                    uword d = grid_name(n)
+                    ubyte j = 0
+                    while j < l and j < GRIDNLEN - 1 {
+                        @(d + j) = iconame[j]
+                        j++
+                    }
+                    @(d + j) = 0
+                    n++
+                }
+            }
+        }
+        cx.dir_close()
+        cx.dos_chdir(&root, len(root))
+        return n
+    }
+
+    sub choose_wall() {
+        ubyte total = wall_scan()
+        if total == 0 {
+            cx.screen_addr(scrh - 1, 0)
+            cx.screen_blitfill(scrw, A_BAR, ' ')
+            cx.screen_addr(scrh - 1, 1)
+            cx.screen_blit("no wallpapers in /desktop", 25, A_BAR)
+            return
+        }
+        ; The very same grid the icons use, paging buttons and all --
+        ; but at 64x64. A photograph shrunk to 32 is a smudge; at 64 you
+        ; can tell which of your pictures it is, which is the entire
+        ; point of showing them.
+        ; EIGHT per page, and the number is not a matter of taste. The
+        ; grid's pixels start at $16200 and the text layer's map is at
+        ; $1B000, so there are 19 KB to work in. Twelve 64x64 thumbnails
+        ; are 24 KB: they ran through the map and painted garbage across
+        ; the top of the screen. Eight are 16 KB and stop at $1A200.
+        gridpx = 64
+        gridbytes = 2048              ; 64x64 at 4bpp
+        gridsz = x16c.SPRITE_SIZE_64
+        gridcols = 4
+        gridmax = 8
+        ubyte sel = grid_pick(total)
+        grid_hide()
+        if sel == 255
+            return
+        ; grid_name holds "PIC03.THM"; the config wants "PIC03", and
+        ; wall_name() puts .BMX or .BMO back on depending on the screen.
+        uword chosen = grid_name(sel)
+        ubyte j = 0
+        while j < WSTEM_MAX and @(chosen + j) != 0 and @(chosen + j) != '.' {
+            @(CFG + C_WALL + j) = @(chosen + j)
+            j++
+        }
+        @(CFG + C_WALL + j) = 0
+        cfg_save()
+        ; Tear up the cache stamp. wall_cached() asks whether the picture
+        ; already in SDRAM is the one it fingerprinted -- not whether it
+        ; is the one now being ASKED for -- so after choosing, the old
+        ; wallpaper still matches its own stamp and paint() would decide
+        ; there was nothing to fetch. Clearing the magic makes the next
+        ; paint load from disk, which is exactly what was wanted.
+        @(WALLMAG) = 0
+    }
+
+    sub change_icon(ubyte n) {
+        icons_z(x16c.SPRITE_Z_DISABLED)
+        gridpx = iww                  ; icons show at the desktop's own size
+        gridbytes = ibytes
+        gridsz = sprsize
+        gridcols = GRIDCOLS
+        gridmax = GRIDMAX
+        ubyte count = grid_scan()
+        ubyte got = 0
+        if count == 0 {
+            ; Never fail silently here. A right click that does nothing
+            ; at all is indistinguishable from a right click that was
+            ; not noticed, and that is exactly how the last bug hid.
+            cx.screen_addr(scrh - 1, 0)
+            cx.screen_blitfill(scrw, A_BAR, ' ')
+            cx.screen_addr(scrh - 1, 1)
+            cx.screen_blit("no icons found in /desktop", 26, A_BAR)
+        }
+        if count != 0 {
+            ubyte sel = grid_pick(count)
+            grid_hide()
+            if sel != 255 {
+                uword s = grid_name(sel)
+                while @(s + got) != 0 and got < len(iconame) - 1 {
+                    iconame[got] = @(s + got)
+                    got++
+                }
+                iconame[got] = 0
+            }
+        }
+        if got != 0 {
+            ; SAVE writes to the CURRENT directory and ignores a path,
+            ; so stand in the program's own folder before copying.
+            split_path(rec_path(n), slen(rec_path(n)))
+            if folder[0] != 0
+                cx.dos_chdir(&folder, slen(&folder))
+            else
+                cx.dos_chdir(&root, len(root))
+            void copy_one(".ico", 512)
+            void copy_one(".i16", 128)
+        }
+        cx.dos_chdir(&root, len(root))
+        make_icons()
+        icons_z(x16c.SPRITE_Z_FRONT)
+        paint_text()
+        cx.sprites_on()
+        cx.mse_config(1, scrw, scrh)
+        mdown = false
     }
 
     sub open_picker() {
@@ -1554,3 +2170,4 @@ main {
         goto STUB
     }
 }
+

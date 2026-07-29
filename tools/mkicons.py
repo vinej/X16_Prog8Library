@@ -311,7 +311,43 @@ def main(argv):
 
     if card:
         fs = Fat32(card)
-        fs.resolve(["DESKTOP"], create=True)
+        dcl = fs.resolve(["DESKTOP"], create=True)
+        # /DESKTOP is a LIBRARY of the distinct icons, named after the
+        # drawing rather than after a program. Writing one file per
+        # program put 111 of them here, and since 211 programs are drawn
+        # from 22 pictures most were byte-identical -- so the grid
+        # offered the same icons over and over across five pages.
+        # Clear whatever is there before writing, or yesterday's
+        # program-named copies linger and the duplicates come back.
+        # Walk the slots rather than deleting by name. Deleting by name
+        # removes the FIRST match, and an earlier run left several
+        # entries sharing one short alias -- COLORC~1.ICO three times --
+        # so a name-based pass removed one of each and left the rest.
+        # Walking every slot cannot miss a duplicate, because it never
+        # asks what anything is called.
+        gone = 0
+        pending = []
+        for c, off in fs._slots(dcl):
+            e = fs._read(c, off)
+            if e[0] == 0x00:
+                break
+            if e[0] == 0xE5:
+                pending = []
+                continue
+            if e[11] == 0x0F:
+                pending.append((c, off, e))
+                continue
+            ext = e[8:11].decode("latin-1").rstrip().upper()
+            if ext in ("ICO", "I16"):
+                start = fs._start_of(e)
+                if start >= 2:
+                    for cl in fs.chain(start):
+                        fs.fat_set(cl, 0)
+                fs._write(c, off, b"\xE5" + e[1:])
+                for lc, loff, le in pending:
+                    fs._write(lc, loff, b"\xE5" + le[1:])
+                gone += 1
+            pending = []
         cache, wrote = {}, 0
         for path, prog, name, _why in chosen:
             if name not in cache:
@@ -322,19 +358,26 @@ def main(argv):
                                icon.HEADER + icon.pack(icon.shrink(g)))
             big, small = cache[name]
             stem = os.path.splitext(prog)[0].upper()   # full long name; img_put writes an LFN
-            for where in (path, "/DESKTOP"):
-                fs.add(f"{where}/{stem}.ICO", big)
-                fs.add(f"{where}/{stem}.I16", small)
-                wrote += 2
+            fs.add(f"{path}/{stem}.ICO", big)
+            fs.add(f"{path}/{stem}.I16", small)
+            wrote += 2
         # One .MET beside the library so the tile editor can open the
         # icons without being told their geometry. Per-icon copies would
         # be 111 more files saying the same six bytes.
-        import io
-        meta = io.BytesIO()
-        meta.write(bytes([32, 32, 4, 1, 0, 1]))
-        fs.add("/DESKTOP/ICON32.MET", meta.getvalue())
+        # ...and now the library itself: one file per distinct drawing,
+        # named after it, so /DESKTOP holds 22 recognisable choices
+        # instead of 111 copies of them.
+        lib = 0
+        for name in sorted(set(c[2] for c in chosen)):
+            big, small = cache[name]
+            fs.add(f"/DESKTOP/{name.upper()}.ICO", big)
+            fs.add(f"/DESKTOP/{name.upper()}.I16", small)
+            lib += 2
+        fs.add("/DESKTOP/ICON32.MET", bytes([32, 32, 4, 1, 0, 1]))
         fs.add("/DESKTOP/ICON16.MET", bytes([16, 16, 4, 1, 0, 1]))
-        wrote += 2
+        print(f"  /DESKTOP: {gone} old files removed, {lib} written "
+              f"({lib // 2} distinct icons)")
+        wrote += lib + 2
         free = fs.update_fsinfo()
         fs.close()
         print(f"\n{wrote} files written to {card}; {free} clusters free")
