@@ -389,3 +389,14 @@ accumulator rather than on arguments.
 | Input parameters | None — operates on the module's own state. |
 | Output parameters | Nothing the macro can hand back; see the routine's header. |
 | More info | Available when `X16_USE_SCREEN_EXTRA` is enabled. |
+
+## Reference: routines not covered above
+
+Taken from each routine's own header in the source, so this
+stays true as the module changes.
+
+| Routine | Purpose | In | Out |
+|---|---|---|---|
+| `screen_get_size` | the live text grid, after any screen_set_mode | -- | X = columns, Y = rows |
+| `screen_addr_store` | -- | -- | -- |
+| `screen_addr_calc` | -- | -- | -- |

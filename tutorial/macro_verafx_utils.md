@@ -274,3 +274,16 @@ main {
 }
 
 ```
+
+## Reference: routines not covered above
+
+Taken from each routine's own header in the source, so this
+stays true as the module changes.
+
+| Routine | Purpose | In | Out |
+|---|---|---|---|
+| `fxu_cache_fill_off` | -- | -- | -- |
+| `fxu_cache_cycle_off` | -- | -- | -- |
+| `fxu_4bit_off` | -- | -- | -- |
+| `fxu_hop_off` | -- | -- | -- |
+| `fxu_cache_write1` | -- | -- | -- |

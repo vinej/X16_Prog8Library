@@ -147,3 +147,13 @@ accumulator rather than on arguments.
 | Input parameters | `offset`, `count`, `counthi`, `bank`, `rate` |
 | Output parameters | Nothing the macro can hand back; see the routine's header. |
 | More info | Available when `X16_USE_PCM_STREAM` is enabled. |
+
+## Reference: routines not covered above
+
+Taken from each routine's own header in the source, so this
+stays true as the module changes.
+
+| Routine | Purpose | In | Out |
+|---|---|---|---|
+| `pcm_stream_isr` | the AFLOW service, called from irq_handler. | -- | -- |
+| `pcm_stream_fill` | -- | -- | -- |

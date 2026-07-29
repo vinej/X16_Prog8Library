@@ -2319,6 +2319,7 @@
 "stack_init": "X16_USE_STACK",
 "stack_isempty": "X16_USE_STACK",
 "stack_isfull": "X16_USE_STACK",
+"stack_lowbyte": "X16_USE_STACK",
 "stack_notempty": "X16_USE_STACK",
 "stack_notfull": "X16_USE_STACK",
 "stack_pop": "X16_USE_STACK",

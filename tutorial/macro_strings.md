@@ -713,3 +713,14 @@ accumulator rather than on arguments.
 | Input parameters | `ch` |
 | Output parameters | Nothing the macro can hand back; see the routine's header. |
 | More info | Available when `X16_USE_STRING_CASE` is enabled. |
+
+## Reference: routines not covered above
+
+Taken from each routine's own header in the source, so this
+stays true as the module changes.
+
+| Routine | Purpose | In | Out |
+|---|---|---|---|
+| `str_lowerchar_iso` | -- | -- | -- |
+| `str_upperchar_iso` | -- | -- | -- |
+| `str_compare_nocase_iso` | -- | -- | -- |

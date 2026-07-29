@@ -116,11 +116,8 @@ main {
     str s_editfoot = "n new folder  e rename  d delete  c copy  v paste  esc closes"
     str s_saveinto = "save into "
     str s_savefoot = "walk to the folder then press h   click a sheet to replace it   esc cancels"
-    ; the browser's answers, from the library's ui/filepick.asm
-    const ubyte FPK_NONE = 0
-    const ubyte FPK_PICK = 1
-    const ubyte FPK_ALT  = 2
-    const ubyte FPK_HERE = 3      ; 'h': the folder being shown
+    ; the browser's answers are x16c.FPK_* (library ui/filepick.asm):
+    ; FPK_NONE, FPK_PICK, FPK_ALT, and FPK_HERE = 'h', the folder shown
 
 
 ; =====================================================================
@@ -1129,7 +1126,7 @@ main {
         ubyte act = cx.fp_open()
         cx.fp_close()
         needfull = true               ; the status line is ours again
-        if act != FPK_PICK
+        if act != x16c.FPK_PICK
             return false
         ; COPY the name out rather than following a pointer to it. The
         ; browser lives in bank 20 here, and a pointer it returns names
@@ -1157,14 +1154,14 @@ main {
         cx.fp_heading(&s_saveinto)
         cx.fp_footing(&s_savefoot)
         ubyte act = cx.fp_open()
-        if act == FPK_PICK
+        if act == x16c.FPK_PICK
             fnlen = cx.fp_copy_name(&fname, len(fname))   ; replace that one
         cx.fp_close()
         needfull = true
         ; ESC now means what it says. 'h' takes the folder on show, and
         ; the drive is left standing there either way, so the filename
         ; asked for next is written where you chose.
-        return act == FPK_PICK or act == FPK_HERE
+        return act == x16c.FPK_PICK or act == x16c.FPK_HERE
     }
 
     ; ask for a filename; -> false when cancelled

@@ -262,6 +262,7 @@ it, so read it from the registers/flags/P-block afterwards. Angles are the
 | `cx.sprite_pos(sprite, x, y)` | set a sprite's 10-bit position |
 | `cx.sprite_get_pos(sprite)` | read it back (→ P0/1 = x, P2/3 = y) |
 | `cx.sprite_image(sprite, vaddr, mode)` | point at pixels; `mode` = `SPRITE_MODE_4BPP`/`8BPP` |
+| `cx.sprite_image_at(sprite, vbank, vaddr, mode)` | the same, with the address pre-split so it can come from variables |
 | `cx.sprite_flags(sprite, flags)` | byte 6: collision mask, Z, flips |
 | `cx.sprite_z(sprite, z)` | change only the Z-depth |
 | `cx.sprite_size(sprite, wcode, hcode, paloff)` | size codes + palette offset |
@@ -594,6 +595,10 @@ it, so read it from the registers/flags/P-block afterwards. Angles are the
 | `cx.fs_setname(name, len)` | set KERNAL filename |
 | `cx.fs_load(name, len, device, sa, dst)` | load to RAM; → carry set = error, A = code |
 | `cx.fs_vload(name, len, device, vbank, vaddr)` | load to VRAM |
+| `cx.fs_prg_entry(name, len, device)` | a PRG's SYS entry address, read without loading it; -> X/Y, or $0000 |
+| `cx.bmx_lasterr()` | why the last `bmx_*` call failed; -> A = `BMX_ERR_*`, 0 if it worked |
+| `cx.dir_open(path, len, device)` | open a directory (`len` 0 = the current one); -> carry set = failed |
+| `cx.dir_next(buf, size)` | next entry into `buf`; -> carry SET = got one, CLEAR at the end |
 
 **File I/O (X16_USE_FILEIO)**
 
@@ -864,3 +869,30 @@ assembler's own way (`cx.pal_set(…)` in ACME, `xm_pal_set …` in ca65,
 `xm_pal_set(…)` in KickAssembler, and so on; the converters handle it). Source
 the converted `core/sugar` from your tree after setting the gates, exactly as
 above.
+
+## Reference: routines not covered above
+
+Taken from each routine's own header in the source, so this
+stays true as the module changes.
+
+| Routine | Purpose | In | Out |
+|---|---|---|---|
+| `kbd_keymap` | get or set the active keyboard layout | C clear: X/Y = NUL-terminated layout string C set: query current layout | query: A = layout index, X/Y = current layout string set: carry clear on success, carry set on failure |
+| `zi_delay` | a coarse busy-wait so the ESP32 can keep up. | A = ticks (~40 ms each at 8 MHz; timing is approximate) Self-contained (no jiffy IRQ, no KERNAL), so it works in any context. | -- |
+| `sprite_setptr` | point data port 0 at one byte of a sprite record. | X = sprite number (0-127), A = byte offset within the record Leaves the port on auto-increment, so consecutive fields stream. | -- |
+| `zsm_lasterr` | why the last zsm_init failed | -- | A = ZSM_ERR_* (ZSM_ERR_NONE after one that worked) zsm_init answers with both a carry and a code, and a caller that can only read one of them needs the code: "it would not start" is not much to go on when the answer is that the file is a version too new. |
+| `zsm_next` | read one stream byte and advance zsm_ptr | -- | -- |
+| `zsm_next_done` | -- | -- | -- |
+| `zsm_skip_t1` | skip X16_T1 stream bytes | -- | -- |
+| `zsm_skip_loop` | -- | -- | -- |
+| `zsm_skip_done` | -- | -- | -- |
+| `zsm_ext_pcm` | handle EXTCMD channel 0 command/argument pairs | -- | -- |
+| `zsm_ext_pcm_loop` | -- | -- | -- |
+| `zsm_ext_pcm_ctrl` | -- | -- | -- |
+| `zsm_ext_pcm_rate` | -- | -- | -- |
+| `zsm_ext_pcm_trigger` | -- | -- | -- |
+| `zsm_ext_pcm_next` | -- | -- | -- |
+| `zsm_ext_pcm_done` | -- | -- | -- |
+| `zsm_pcm_init` | parse optional PCM header/table from the ZSM header | r0 = ZSM header pointer | carry set if the PCM header is present but unsupported/invalid |
+| `zsm_psg_write` | write A to PSG register offset X | -- | -- |
+| `zsm_ym_write` | raw YM register write | A = value, X = register | -- |

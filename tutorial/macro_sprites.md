@@ -138,6 +138,36 @@ main {
 
 ```
 
+## `cx.sprite_image_at(sprite, vbank, vaddr, mode)`
+
+| Field | Details |
+|---|---|
+| Macro | `cx.sprite_image_at(sprite, vbank, vaddr, mode)` |
+| Purpose | the same as `cx.sprite_image()`, with the VRAM address already split |
+| Input parameters | `sprite, vbank, vaddr, mode` -- `vbank` is address bit 16, `vaddr` the low 16 bits |
+| Output parameters | No direct return documented. Expect normal routine register/flag clobbers unless the macro description says otherwise. |
+| More info | Available when `X16_USE_SPRITE` is enabled. |
+| Example | See below. |
+
+`cx.sprite_image()` shifts its address at assemble time, so every
+argument must be a constant. Use this one when the image address is
+computed at run time -- a program building N sprite images into VRAM
+in a loop knows the address only as a variable.
+
+```prog8
+%import x16lib
+
+
+
+main {
+    sub start() {
+        ; $10000 written out as bank 1, offset $0000
+        cx.sprite_image_at(1, 1, $0000, SPRITE_MODE_4BPP)
+    }
+}
+
+```
+
 ## `cx.sprite_flags(sprite, flags)`
 
 | Field | Details |

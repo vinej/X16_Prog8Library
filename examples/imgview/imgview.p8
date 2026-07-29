@@ -35,12 +35,8 @@
 %zeropage dontuse
 
 main {
-    ; The browser's answers, from the library's ui/filepick.asm. They are
-    ; not in x16lib_const because the fixed-size blob cannot carry a 3 KB
-    ; browser, and that is where the generated constants come from.
-    const ubyte FPK_NONE = 0
-    const ubyte FPK_PICK = 1
-    const ubyte FPK_ALT  = 2
+    ; The browser's answers (x16c.FPK_*) come from the library's
+    ; ui/filepick.asm, via x16lib_const.
 
     ; lowercase on purpose: Prog8's PETSCII maps a-z to $41-$5A, which the
     ; KERNAL/host filesystem reads as the UPPER-CASE name IMAGE.BMX.
@@ -140,7 +136,7 @@ main {
         clear_glass()                 ; the panel leaves the glass dirty
         draw_button()
         cx.mse_config(1, 80, 60)
-        if act != FPK_PICK
+        if act != x16c.FPK_PICK
             return false
         ; Copy the path out rather than following a pointer into the
         ; browser: unbanked that would work, banked it would hand back

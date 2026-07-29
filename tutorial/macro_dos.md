@@ -139,3 +139,12 @@ accumulator rather than on arguments.
 | Input parameters | `newname`, `newlen`, `oldname`, `oldlen` |
 | Output parameters | Nothing the macro can hand back; see the routine's header. |
 | More info | Available when `X16_USE_DOS` is enabled. |
+
+## Reference: routines not covered above
+
+Taken from each routine's own header in the source, so this
+stays true as the module changes.
+
+| Routine | Purpose | In | Out |
+|---|---|---|---|
+| `dos_lasterr` | the status code the last dos_* call came back with | -- | A = the code (0-19 success, 20-99 error, 255 = no channel) Every routine here reports twice: the carry says pass or fail, and A says why. A caller that can only see one of those -- a generated high-level binding, say, which will not guess a type for a routine that documents both -- can call this afterwards and get the code. |

@@ -5619,9 +5619,9 @@ GFX2L_STRIDE = 80
 .if !X16_BITMAP2L_NO_INIT != 0
 gfx2l_init
     #vera_dcsel 0
-    lda #$80                    ; 1:1 scale -> 1:1 scale
-    sta VERA_DC_HSCALE
-    sta VERA_DC_VSCALE
+    lda #$40                    ; 64 = two output pixels per input pixel,
+    sta VERA_DC_HSCALE          ; so this 320x240 bitmap fills the 640x480
+    sta VERA_DC_VSCALE          ; display (128 would show 640 of its 320)
     stz VERA_DC_BORDER
 
     lda #(VERA_LAYER_BITMAP | VERA_LAYER_BPP_2)
@@ -6795,15 +6795,16 @@ GFX4L_STRIDE = 160
 .if !X16_BITMAP4L_NO_INIT != 0
 gfx4l_init
     #vera_dcsel 0
-    lda #$80
-    sta VERA_DC_HSCALE
-    sta VERA_DC_VSCALE
+    lda #$40                    ; 64 = two output pixels per input pixel,
+    sta VERA_DC_HSCALE          ; so this 320x240 bitmap fills the 640x480
+    sta VERA_DC_VSCALE          ; display (128 would show 640 of its 320)
     stz VERA_DC_BORDER
 
     lda #(VERA_LAYER_BITMAP | VERA_LAYER_BPP_4)
     sta VERA_L0_CONFIG
-    lda #$01
-    sta VERA_L0_TILEBASE
+    lda #$00                    ; bitmap base $00000, 320 pixels wide --
+    sta VERA_L0_TILEBASE        ; TILEBASE bit 0 picks 320 (0) or 640 (1),
+                                ; and every address here strides 160 bytes
     stz VERA_L0_HSCROLL_L
     stz VERA_L0_HSCROLL_H
     stz VERA_L0_VSCROLL_L
@@ -7482,8 +7483,12 @@ bitmap4l_gp4l_done
 ; ---------------------------------------------------------------------
 ; gfx4l_line -- Bresenham, any direction
 ;   in:  X16_P0/P1 = x0, X16_P2 = y0
-;        X16_P4/P5 = x1, y1 in P6/P7?  (compatible with gfx4l_line macros)
+;        X16_P3/P4 = x1, X16_P5 = y1
 ;        X16_P6 = colour
+;
+; The block copy below takes P0..P6 straight into gl4l_x0..gl4l_color,
+; so the parameter order IS that variable layout -- x1 starts at P3,
+; not P4. xm_gfx4l_line fills them the same way.
 ; ---------------------------------------------------------------------
 gfx4l_line
     ldx #6
@@ -8970,9 +8975,15 @@ fb_move_pixels
 ; (zone: file scope in 64tass)
 
 ; --- character style bits used by graph_get_char_size ----------------
-GRAPH_STYLE_UNDERLINE = %00000001
-GRAPH_STYLE_BOLD      = %00000010
-GRAPH_STYLE_ITALIC    = %00000100
+; These are the ROM's own currentMode bits (x16-rom graphics/fonts/
+; fonts.inc SET_*), inherited from GEOS -- high bits, not 1/2/4. Bit 0
+; is GEOS's OPAQUE flag and is not exposed here.
+GRAPH_STYLE_UNDERLINE = %10000000
+GRAPH_STYLE_BOLD      = %01000000
+GRAPH_STYLE_REVERSE   = %00100000
+GRAPH_STYLE_ITALIC    = %00010000
+GRAPH_STYLE_OUTLINE   = %00001000
+GRAPH_STYLE_PLAIN     = %00000000
 
 ; ---------------------------------------------------------------------
 ; graph_init -- initialize GRAPH and active framebuffer driver
@@ -9020,6 +9031,10 @@ graph_draw_rect
 ; ---------------------------------------------------------------------
 ; graph_move_rect -- move rectangle
 ;   in: r0 = sx, r1 = sy, r2 = tx, r3 = ty, r4 = width, r5 = height
+;
+; A ROM asymmetry worth knowing: moving DOWN copies height+1 rows,
+; moving up (or level) copies exactly height. Leave a row of slack
+; below a downward move, or it will clobber one row past the target.
 ; ---------------------------------------------------------------------
 graph_move_rect
     jmp GRAPH_MOVE_RECT
@@ -14915,6 +14930,27 @@ ym_drum
 ; whose existing local helpers remain unchanged.
 ;
 ; Prefix convention: ar_* = audio ROM.
+;
+; KERNAL DEFECTS these wrappers pass straight through, confirmed against
+; x16-rom r49 while testing the C port of this module. They are the
+; ROM's, not this library's, so nothing here works around them -- but
+; the wrapper is where you will meet them:
+;
+;   notecon_midi2bas (ar_note_midi2bas) indexes the bas2midi table
+;   instead of midi2bas, so it answers the wrong note entirely: MIDI 60
+;   gives 59, not 65. bas2midi (ar_note_bas2midi) is correct.
+;   -- audio/noteconvert.s, `lda bas2midi,x` inside rom_proc notecon_midi2bas
+;
+;   psg_getatten (ar_psg_getatten) loads the attenuation into rom_A, then
+;   RESTORE_BANK overwrites rom_A with the saved RAM bank, and only then
+;   copies to rom_X -- so it returns the RAM bank that was current before
+;   the call. psg_getpan does its `tax` BEFORE the restore and is fine.
+;   -- audio/psg.s, rom_proc psg_getatten
+;
+; And the encoding that trips everyone: a BASIC oct/note byte is
+; octave*16 + note + 1 -- twelve notes then FOUR unused codes per
+; octave -- so middle C (MIDI 60) is 65, and the codes in the gaps
+; convert to 0. An obvious-looking 48 is in a gap and tests nothing.
 ; =====================================================================
 
 ; (zone: file scope in 64tass)
@@ -15180,19 +15216,7 @@ ar_ym_get_chip_type   ; out: A=0 none, 1 OPP, 2 OPM, 3 unexpected
 ; 16-bit address space and uses the existing AFLOW PCM streamer.
 ;
 ; Call zsm_tick at the ZSM header's tick rate. Use zsm_get_tickrate after
-; ; ---------------------------------------------------------------------
-; zsm_lasterr -- why the last zsm_init failed
-;   out: A = ZSM_ERR_* (ZSM_ERR_NONE after one that worked)
-;
-; zsm_init answers with both a carry and a code, and a caller that can
-; only read one of them needs the code: "it would not start" is not much
-; to go on when the answer is that the file is a version too new.
-; ---------------------------------------------------------------------
-zsm_lasterr
-    lda zsm_code
-    rts
-
-zsm_init if you need to configure your scheduler.
+; zsm_init if you need to configure your scheduler.
 ; =====================================================================
 
 ; (zone: file scope in 64tass)
@@ -15408,6 +15432,18 @@ zsm_status
     lda zsm_flags
     lsr
     lda zsm_flags
+    rts
+
+; ---------------------------------------------------------------------
+; zsm_lasterr -- why the last zsm_init failed
+;   out: A = ZSM_ERR_* (ZSM_ERR_NONE after one that worked)
+;
+; zsm_init answers with both a carry and a code, and a caller that can
+; only read one of them needs the code: "it would not start" is not much
+; to go on when the answer is that the file is a version too new.
+; ---------------------------------------------------------------------
+zsm_lasterr
+    lda zsm_code
     rts
 
 ; ---------------------------------------------------------------------
@@ -18217,9 +18253,11 @@ stack_notempty
 ; ---------------------------------------------------------------------
 stack_isfull
     lda stack_sp+1
+    beq stack_lowbyte                ; sp < 256: the low byte decides
     cmp #$20                    ; sp >= $2000: wrapped past the bottom
     bcs stack_full
-    bne stack_notfull
+    bcc stack_notfull                ; $0100-$1FFF: at least 256 bytes free
+stack_lowbyte
     lda stack_sp
     cmp #2                      ; 0 or 1 byte free is full for pushw
     bcc stack_full

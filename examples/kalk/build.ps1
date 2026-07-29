@@ -24,6 +24,10 @@ Copy-Item (Join-Path $PSScriptRoot "ORDER.CSV") (Join-Path $out "ORDER.CSV") -Fo
 
 $prog = if ($Test) { "kalktest.p8" } else { "kalk.p8" }
 
+# -BankFile is not optional: kalk overflows low RAM by ~4.7 KB without it.
+# kalk.banks puts the browser and its helpers in bank 20, which is the
+# whole reason kalk fits at all.
 & (Join-Path $root "build.ps1") `
     -Program (Join-Path $PSScriptRoot $prog) `
+    -BankFile (Join-Path $PSScriptRoot "kalk.banks") `
     -Run:$Run

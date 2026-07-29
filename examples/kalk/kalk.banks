@@ -5,14 +5,20 @@
 # ceiling. Banked, its wrappers page bank 20 in, call, and page back;
 # what is left in low RAM is the handful of bytes for those wrappers.
 #
-# dir goes in the same bank because the browser calls it, and a banked
-# module cannot call into another bank. screen, float, fileio and the
-# rest stay in low RAM: those are kalk's inner loops.
+# dir is not listed and must not be: the library forces X16_USE_DIR on
+# wherever X16_USE_FILEPICK is on, so dir is assembled into the bank
+# image alongside the browser that calls it -- naming it here only earns
+# a "matches no module used by this program" warning, because kalk never
+# calls a dir_* routine itself. screen, float, fileio and the rest stay
+# in low RAM: those are kalk's inner loops.
 #
 #   .\build.ps1 examples\kalk\kalk.p8 -BankFile examples\kalk\kalk.banks
+#
+# (examples\kalk\build.ps1 passes this file for you.)
+#
 # dos joins them: asking the drive why a load failed is not worth
 # 300 bytes of low RAM, and the browser already needs it in there.
-# mouse and number join them so the diagnostics fit: kalk polls the
-# mouse once per loop and formats a number only when something has
-# already gone wrong, so neither minds the far call.
-bank 20, "filepick,dir,dos,mouse,number"
+# mouse joins them so the diagnostics fit: kalk polls the mouse once per
+# loop, so it does not mind the far call. number used to be here too,
+# but kalk formats through float now and calls nothing from it.
+bank 20, "filepick,dos,mouse"

@@ -172,3 +172,12 @@ accumulator rather than on arguments.
 | Input parameters | None — operates on the module's own state. |
 | Output parameters | Returns `A`. |
 | More info | Available when `X16_USE_IRQ_SPRCOL_API` is enabled. |
+
+## Reference: routines not covered above
+
+Taken from each routine's own header in the source, so this
+stays true as the module changes.
+
+| Routine | Purpose | In | Out |
+|---|---|---|---|
+| `irq_handler` | services VSYNC / LINE / SPRCOL, then chains | -- | -- |

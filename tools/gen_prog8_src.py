@@ -106,8 +106,25 @@ def build_gate_map():
     return routine_gate
 
 # ---------------------------------------------------------------------
-# 3. constants (same as the blob generator)
+# 3. constants
 # ---------------------------------------------------------------------
+# Two sources, because neither one is complete on its own:
+#
+#   dist/64tass/x16lib.inc -- the symbol list of the dist blob build.
+#   The blob turns on 37 of the library's 89 gates, so every constant
+#   belonging to the other 52 modules is simply absent: FPK_*, the
+#   GRAPH_STYLE_* bits, ZSM_ERR_*, the GFX*_WIDTH/HEIGHT/STRIDE family.
+#   Three examples here had each re-declared FPK_NONE/PICK/ALT by hand
+#   for want of them.
+#
+#   the flattened source -- covers every module, which is the set that
+#   matters, because the source is what this wrapper embeds and 64tass
+#   actually assembles. ACME's symbol list normalises everything to hex;
+#   the source spells constants in hex, binary AND decimal, so all three
+#   forms have to be read here.
+#
+# Where both define a name the SOURCE wins: x16lib_src.asm is the file
+# being assembled, so a constant disagreeing with it would be a lie.
 def load_inc_syms():
     sym = {}
     for line in open(INC, encoding="utf-8"):
@@ -115,6 +132,38 @@ def load_inc_syms():
         if m:
             sym[m.group(1)] = int(m.group(2), 16)
     return sym
+
+_LIT = re.compile(r"^(?:\$([0-9A-Fa-f]+)|%([01]+)|([0-9]+))$")
+_DEF = re.compile(r"^([A-Z][A-Z0-9_]*)\s*=\s*(\S+)\s*(?:;.*)?$")
+
+def parse_lit(text):
+    m = _LIT.match(text)
+    if not m:
+        return None                      # an expression, not a literal: skip
+    hexv, binv, decv = m.groups()
+    return int(hexv, 16) if hexv else int(binv, 2) if binv else int(decv)
+
+def load_src_consts():
+    """UPPER_SNAKE `NAME = <literal>` defined at column 0 of the flat source."""
+    consts, ambiguous = {}, set()
+    for line in open(os.path.join(PKG, "x16lib_src.asm"),
+                     encoding="utf-8", errors="replace"):
+        m = _DEF.match(line.rstrip("\n"))
+        if not m:
+            continue
+        name = m.group(1)
+        if name.startswith("X16_"):      # gates and the P/T zero-page block
+            continue
+        v = parse_lit(m.group(2))
+        if v is None:
+            continue
+        if name in consts and consts[name] != v:
+            ambiguous.add(name)          # defined per gate branch: no one answer
+        else:
+            consts[name] = v
+    for n in ambiguous:
+        consts.pop(n, None)
+    return consts, ambiguous
 
 def gen_consts(sym):
     consts = sorted((n, v) for n, v in sym.items()
@@ -469,8 +518,17 @@ def main():
     nlines = write_flat()
     routine_gate = build_gate_map()
     sym = load_inc_syms()
+    src_consts, ambiguous = load_src_consts()
+    conflicts = {n: (sym[n], v) for n, v in src_consts.items()
+                 if n in sym and sym[n] != v}
+    sym.update(src_consts)
     with open(os.path.join(PKG, "x16lib_const.p8"), "w", newline="\n") as f:
         f.write(gen_consts(sym))
+    for n, (old, new) in sorted(conflicts.items()):
+        print(f"  const {n}: blob inc says ${old:X}, source says ${new:X} -- source wins")
+    if ambiguous:
+        print(f"  skipped {len(ambiguous)} gate-dependent constant(s): "
+              + ", ".join(sorted(ambiguous)))
     macros = parse_sugar()
     lib, count, gated = gen_lib(macros, routine_gate)
     with open(os.path.join(PKG, "x16lib.p8"), "w", newline="\n") as f:

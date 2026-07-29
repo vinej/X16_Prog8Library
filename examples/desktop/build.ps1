@@ -44,7 +44,10 @@ Copy-Item -Force (Join-Path $PSScriptRoot "sub\SUBDATA.SEQ") $sub
 & (Join-Path $root "build.ps1") -Program (Join-Path $PSScriptRoot "child.p8")
 & (Join-Path $root "build.ps1") -Program (Join-Path $root "examples\hello\hello.p8")
 & (Join-Path $root "build.ps1") -Program (Join-Path $root "examples\imgview\imgview.p8")
-& (Join-Path $root "build.ps1") -Program (Join-Path $root "examples\kalk\kalk.p8")
+# kalk through its own script, which knows it needs -BankFile to fit in
+# low RAM (and stages ORDER.CSV next to it). Building it plain from here
+# only ever produced "Program too long".
+& (Join-Path $root "examples\kalk\build.ps1")
 
 if ($Proof) {
     & (Join-Path $root "build.ps1") -Program (Join-Path $PSScriptRoot "relaunch.p8") -Run:$Run
