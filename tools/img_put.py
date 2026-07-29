@@ -242,11 +242,20 @@ class Fat32:
             s = (((s & 1) << 7) + (s >> 1) + b) & 0xFF
         return s
 
+    # The punctuation FAT allows in an 8.3 name. "~" has to be here: it
+    # is the character every generated alias is built from, and leaving
+    # it out made _is_short("COLORC~1.ICO") false -- so find_entry fell
+    # back to matching long names, an alias has none, nothing ever
+    # matched, and alias() handed out "~1" to every caller. Four files
+    # in one directory ended up sharing a short name.
+    SHORT_OK = "_-~$%'@!(){}^#&"
+
     @staticmethod
     def _is_short(name):
         base, _, ext = name.upper().partition(".")
         return (len(base) <= 8 and len(ext) <= 3 and name == name.upper()
-                and all(c.isalnum() or c in "_-" for c in base + ext))
+                and base
+                and all(c.isalnum() or c in Fat32.SHORT_OK for c in base + ext))
 
     def alias(self, cluster, name):
         """An unused NAME~N.EXT to stand in for a long name."""

@@ -7,7 +7,7 @@ A [Prog8](https://prog8.readthedocs.io/) wrapper for the
 [X16_Library](../x16_library) — call the library's hand-written 6502 routines
 from Prog8 with typed subroutines, on the Commander X16.
 
-Generated from **X16_Library v0.14.0**.
+Generated from **X16_Library v0.18.7**.
 
 Every library module is available, and your PRG contains only the ones you
 actually call.
