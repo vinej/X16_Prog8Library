@@ -1257,7 +1257,8 @@ xuse_vera_any = xuse_vera_addr || xuse_vera_fill || xuse_vera_fxprobe || xuse_ve
 ;   out: the chosen port points at that address
 ;
 ; The runtime equivalent of +vera_addr, for addresses not known at
-; assembly time. Compose Y yourself, or use vera_set_addr0_inc below.
+; assembly time. Compose Y yourself, or use the +vera_addr macro in
+; core/macros.asm, which takes the address and the increment together.
 ;
 ; A program that only fills does not need these, so they are behind
 ; X16_USE_VERA_ADDR (X16_USE_VERA / X16_USE_VERA_CORE still pull them in).
@@ -2153,7 +2154,8 @@ _done
 ; ---------------------------------------------------------------------
 ; screen_puts -- print a NUL-terminated string
 ;   in:  A = address low, X = address high
-;   Strings longer than 255 bytes are truncated at 255.
+;   Prints at most 256 characters: the index is one byte, so a string
+;   with no NUL in its first 256 bytes stops when it wraps.
 ; ---------------------------------------------------------------------
 screen_puts
     sta X16_TPTR0
@@ -2582,6 +2584,11 @@ sprite_pos
 ; sprite_get_pos -- read it back
 ;   in:  X = sprite
 ;   out: X16_P0/P1 = x, X16_P2/P3 = y
+;
+; VERA holds the position as 10-bit two's complement, so bit 9 is sign
+; extended into the high byte here: a sprite parked at x = -5 reads back
+; as -5 and not as 1019, and the value can be compared against the same
+; signed coordinates that were written.
 ; ---------------------------------------------------------------------
 sprite_get_pos
     lda #SPRITE_ATTR_X_L
@@ -2590,12 +2597,18 @@ sprite_get_pos
     sta X16_P0
     lda VERA_DATA0
     and #$03
-    sta X16_P1
+    cmp #$02                    ; bit 9 set: negative
+    bcc +
+    ora #$FC
++   sta X16_P1
     lda VERA_DATA0
     sta X16_P2
     lda VERA_DATA0
     and #$03
-    sta X16_P3
+    cmp #$02
+    bcc +
+    ora #$FC
++   sta X16_P3
     rts
 
 ; ---------------------------------------------------------------------
@@ -3119,6 +3132,13 @@ bitmap8l_gp8l_done
 ; one byte earlier.
 ; ---------------------------------------------------------------------
 gfx8l_blit
+	ldx X16_P4                  ; a zero width or height draws nothing:
+	beq bitmap8l_gb8l_none              ; dec/bne and cpy would otherwise run the
+	ldx X16_P5                  ; loops 256 times, past the framebuffer
+	bne bitmap8l_gb8l_sized
+bitmap8l_gb8l_none
+	rts
+bitmap8l_gb8l_sized
 	and #3
 	sta gb8l_op
 	beq bitmap8l_gb8l_row                  ; copy: no opcode to patch
@@ -3175,6 +3195,12 @@ bitmap8l_gb8l_optab
 ; does not. P2 and P5 are consumed.
 ; ---------------------------------------------------------------------
 gfx8l_blitm
+	ldx X16_P4                  ; as gfx8l_blit: zero width or height is
+	beq bitmap8l_gm8l_none              ; a no-op, not 256 rows
+	ldx X16_P5
+	bne bitmap8l_gm8l_row
+bitmap8l_gm8l_none
+	rts
 bitmap8l_gm8l_row
 	lda #VERA_INC_1
 	jsr gfx8l_setptr
@@ -3252,11 +3278,13 @@ _dx_pos
     stz gl8l_sx+1
 _dx_done
 
-    ; dy = -|y1 - y0|, sy = sign
+    ; dy = -|y1 - y0|, sy = sign.  y is UNSIGNED 8-bit (0-239), so the
+    ; sign of the difference is the carry, not bit 7: bpl here read
+    ; |dy| >= 128 as negative and drew those lines upside down.
     sec
     lda gl8l_y1
     sbc gl8l_y0
-    bpl _dy_pos
+    bcs _dy_pos
     eor #$FF
     clc
     adc #1                      ; absolute value
@@ -3621,19 +3649,33 @@ gfx8h_pal_set
     sta VERA2_PAL_HI
     rts
 
+; Two source bytes per entry, so a count above 128 overruns an 8-bit Y:
+; the pointer is advanced by one entry each pass instead, and Y only ever
+; picks the low/high byte. Before this, entries 128+ re-read the start of
+; the source.
 gfx8h_pal_load
     cpx #0
     beq _done
     sta VERA2_PAL_IDX
     stx g8h_n
-    ldy #0
+    lda X16_PTR0                ; walk a private copy, so the caller's
+    sta X16_TPTR0               ; X16_PTR0 still points at its palette
+    lda X16_PTR0+1
+    sta X16_TPTR0+1
 _loop
-    lda (X16_PTR0),y
+    ldy #0
+    lda (X16_TPTR0),y
     sta VERA2_PAL_LO
     iny
-    lda (X16_PTR0),y
+    lda (X16_TPTR0),y
     sta VERA2_PAL_HI
-    iny
+    clc
+    lda X16_TPTR0
+    adc #2
+    sta X16_TPTR0
+    bcc _nohi
+    inc X16_TPTR0+1
+_nohi
     dec g8h_n
     bne _loop
 _done
@@ -5174,6 +5216,13 @@ _prdone
 ; from bitmap2h_g2h_optab (ora/and/eor (zp),y) -- the 8bpp module's gfx8l_blit
 ; does the same.
 gfx2h_blit
+    ldx X16_P4                  ; a zero width or height draws nothing:
+    beq bitmap2h_g2h_blit_none          ; dec/bne and cpy would otherwise run 256
+    ldx X16_P5                  ; times, walking past the framebuffer
+    bne bitmap2h_g2h_blit_sized
+bitmap2h_g2h_blit_none
+    rts
+bitmap2h_g2h_blit_sized
     and #3
     sta g2h_op                   ; copy (op 0) needs no opcode patch
     beq +
@@ -5232,6 +5281,13 @@ bitmap2h_g2h_blit_done
 ; see the CXRF project). No clipping.
 ; ---------------------------------------------------------------------
 gfx2h_blitm
+    ldx X16_P4                  ; zero height or width: nothing to draw
+    beq bitmap2h_g2h_blitm_none
+    ldx X16_P5
+    bne bitmap2h_g2h_blitm_sized
+bitmap2h_g2h_blitm_none
+    rts
+bitmap2h_g2h_blitm_sized
     jsr bitmap2h_addr_calc
     lda X16_P5
     sta g2h_w
@@ -5583,7 +5639,9 @@ bitmap2h_g2h_optab
 ; MSB-first (the leftmost pixel is bits 7:6), rows of 80 bytes,
 ; 19,200 bytes in all. A pixel byte is at y*80 + (x>>2); its position
 ; within the byte is x & 3. VERA renders it as layer-0 bitmap, 2bpp,
-; 320 wide, HSCALE = VSCALE = $80 -- gfx2l_init programs exactly that
+; 320 wide, HSCALE = VSCALE = $40 -- gfx2l_init programs exactly that
+; ($40 doubles each pixel so the 320-wide bitmap fills the 640-wide
+; display; $80 would show only its left half)
 ; (there is no KERNAL screen mode for it).
 ;
 ; Colours are 0-3 out of the first four palette entries. gfx2l_init
@@ -6367,6 +6425,13 @@ _prdone
 ; from bitmap2l_g2l_optab (ora/and/eor (zp),y) -- the 8bpp module's gfx8l_blit
 ; does the same.
 gfx2l_blit
+    ldx X16_P4                  ; a zero width or height draws nothing:
+    beq bitmap2l_g2l_blit_none          ; dec/bne and cpy would otherwise run 256
+    ldx X16_P5                  ; times, walking past the framebuffer
+    bne bitmap2l_g2l_blit_sized
+bitmap2l_g2l_blit_none
+    rts
+bitmap2l_g2l_blit_sized
     and #3
     sta g2l_op                   ; copy (op 0) needs no opcode patch
     beq +
@@ -6425,6 +6490,13 @@ bitmap2l_g2l_blit_done
 ; see the CXRF project). No clipping.
 ; ---------------------------------------------------------------------
 gfx2l_blitm
+    ldx X16_P4                  ; zero height or width: nothing to draw
+    beq bitmap2l_g2l_blitm_none
+    ldx X16_P5
+    bne bitmap2l_g2l_blitm_sized
+bitmap2l_g2l_blitm_none
+    rts
+bitmap2l_g2l_blitm_sized
     jsr bitmap2l_addr_calc
     lda X16_P5
     sta g2l_w
@@ -7157,15 +7229,17 @@ gfx4l_blit
     lda X16_P7
     sta g4l_src+1
     lda g4l_w
-    bne _gb4l_nonzero
+    beq _gb4l_none
+    lda g4l_h                   ; height 0 used to fall into dec/bne and
+    bne _gb4l_nonzero           ; blit 256 rows of marching source memory
+_gb4l_none
     rts
 
 _gb4l_nonzero
-    clc
-    lda g4l_w
-    adc #1
-    lsr
-    sta g4l_rowbytes
+    lda g4l_w                   ; rowbytes = ceil(w/2). `adc #1 : lsr` threw
+    lsr                         ; the carry away, so the documented maximum
+    adc #0                      ; width 255 gave 0 and every row re-read
+    sta g4l_rowbytes            ; the first source row.
 
     lda X16_P0
     sta g4l_x0
@@ -7284,14 +7358,16 @@ gfx4l_blitm
     lda X16_P7
     sta g4l_src+1
     lda g4l_w
-    bne _gm4l_nonzero
+    beq _gm4l_none
+    lda g4l_h                   ; as gfx4l_blit: height 0 is a no-op, not
+    bne _gm4l_nonzero           ; 256 rows
+_gm4l_none
     rts
 
 _gm4l_nonzero
-    clc
-    lda g4l_w
-    adc #1
+    lda g4l_w                   ; ceil(w/2) keeping the carry: see gfx4l_blit
     lsr
+    adc #0
     sta g4l_rowbytes
 
     lda X16_P0
@@ -7523,10 +7599,10 @@ _gl4l_dx_pos
     stz gl4l_sx+1
 _gl4l_dx_done
 
-    sec                         ; dy = -|y1 - y0|, sy = sign (y is 8-bit)
-    lda gl4l_y1
-    sbc gl4l_y0
-    bpl _gl4l_dy_pos
+    sec                         ; dy = -|y1 - y0|, sy = sign.  y is
+    lda gl4l_y1                 ; UNSIGNED 8-bit (0-239), so the sign is
+    sbc gl4l_y0                 ; the carry, not bit 7: bpl read |dy| >= 128
+    bcs _gl4l_dy_pos            ; as negative and drew upside down.
     eor #$FF
     clc
     adc #1                      ; absolute value
@@ -7892,19 +7968,32 @@ gfx4h_pal_set
     sta VERA2_PAL_HI
     rts
 
+; Two source bytes per entry, so a count above 128 overruns an 8-bit Y:
+; walk the pointer one entry at a time instead. Before this, entries 128+
+; re-read the start of the source.
 gfx4h_pal_load
     cpx #0
     beq _done
     sta VERA2_PAL_IDX
     stx g4h_n
-    ldy #0
+    lda X16_PTR0                ; walk a private copy, so the caller's
+    sta X16_TPTR0               ; X16_PTR0 still points at its palette
+    lda X16_PTR0+1
+    sta X16_TPTR0+1
 _loop
-    lda (X16_PTR0),y
+    ldy #0
+    lda (X16_TPTR0),y
     sta VERA2_PAL_LO
     iny
-    lda (X16_PTR0),y
+    lda (X16_TPTR0),y
     sta VERA2_PAL_HI
-    iny
+    clc
+    lda X16_TPTR0
+    adc #2
+    sta X16_TPTR0
+    bcc _nohi
+    inc X16_TPTR0+1
+_nohi
     dec g4h_n
     bne _loop
 _done
@@ -8563,11 +8652,10 @@ bitmap4h_blit_common
     sta g4h_src
     lda X16_P7
     sta g4h_src+1
-    lda X16_P4
-    clc
-    adc #1
-    lsr
-    sta g4h_rowbytes
+    lda X16_P4                  ; rowbytes = ceil(w/2). `adc #1 : lsr` threw
+    lsr                         ; the carry away, so the documented maximum
+    adc #0                      ; width 255 gave 0 and every row re-read the
+    sta g4h_rowbytes            ; first source row.
 _row
     lda X16_P5
     bne +
@@ -9151,6 +9239,11 @@ con_get_char
 ;   - bitmap8l (8bpp): predefine SHP_PSET / SHP_HLINE to small shims that
 ;     move the colour from A into X16_P3 (where gfx8l_pset wants it), then
 ;     jmp gfx8l_pset / gfx8l_hline; SHP_READ = gfx8l_read; SHP_W/H = 320/240.
+;     That shim CANNOT clip on its own: shapes pass a 16-bit y in P2/P3
+;     while gfx8l_pset reads y from P2 alone, so a shape crossing the top
+;     or bottom edge arrives with the low byte of a y that is out of
+;     range and plots on the wrong row. A shim for this engine must
+;     reject P3 != 0 (and y >= 240) itself before jumping.
 ;   - CXRF points them at its graphics port and gets every mode at once.
 ;
 ;   SHP_PSET   pset:  P0/P1 = x, P2/P3 = y, A = colour (must clip)
@@ -9159,7 +9252,13 @@ con_get_char
 ;   SHP_W/H    the ADDRESS of a little-endian word: canvas w / h
 ;
 ; The P block is reloaded before every call, so the bound routines may
-; clobber it freely; X16_T0..T7 are never touched here.
+; clobber it freely. A bound SHP_HLINE must also accept a length of 0 as
+; "draw nothing": shape_frrect emits one when a corner radius swallows a
+; two-pixel side. Both stock engines already do.
+;
+; This file uses X16_T0/T1 in shape_frrect's span setup, and nothing else
+; from the T block; no T value is ever held across a call to a bound
+; routine.
 ;
 ;   shape_circle  in: P0/P1 = cx, P2/P3 = cy, P4 = r (0-255), A = colour
 ;                 An outline, by the midpoint walk, plotted with
@@ -9199,6 +9298,12 @@ shape_disc
 	sta shapes_efl
 shapes_cgo
 	jsr shapes_take_cxy               ; cx/cy out of the P block, x=r, y=0
+	lda shapes_x                      ; r = 0 is a single pixel. The walk below
+	bne shapes_cloop                  ; would `dec shapes_x` from 0 to 255 and then
+	sta shapes_a                      ; plot ~180 pairs at cx +/- 255 -- for a
+	sta shapes_b                      ; disc, unclipped spans 511 px wide.
+	jsr shapes_eplot
+	rts
 shapes_cloop
 	lda shapes_y                      ; while y <= x
 	cmp shapes_x
@@ -9636,6 +9741,14 @@ shape_flood
 	lda #0
 	sta shapes_ovf
 	sta shapes_sp
+	lda X16_P0                  ; take the seed BEFORE the read: the
+	sta shapes_qx                     ; binding contract at the top of this file
+	lda X16_P1                  ; lets SHP_READ clobber the P block, and
+	sta shapes_qx+1                   ; reading the coordinates back afterwards
+	lda X16_P2                  ; would then start the fill somewhere else
+	sta shapes_qy
+	lda X16_P3
+	sta shapes_qy+1
 	jsr SHP_READ                ; the target = the seed's own colour
 	                            ; (read at the CALLER's P block)
 	sta shapes_tgt
@@ -9644,14 +9757,6 @@ shape_flood
 	clc                         ; (no overflow could have happened yet)
 	rts
 shapes_fseed
-	lda X16_P0                  ; push the seed
-	sta shapes_qx
-	lda X16_P1
-	sta shapes_qx+1
-	lda X16_P2
-	sta shapes_qy
-	lda X16_P3
-	sta shapes_qy+1
 	jsr shapes_push
 shapes_floop
 	lda shapes_sp                     ; stack empty: finished
@@ -9838,33 +9943,28 @@ shapes_push
 	lda #1                      ; remembered; lsr at exit -> carry
 	sta shapes_ovf
 	rts
-+	asl                         ; sp * 4
-	asl
-	tax
-	lda shapes_qx
-	sta shapes_stk,x
-	lda shapes_qx+1
-	sta shapes_stk+1,x
++	tax                         ; four parallel arrays indexed by sp, NOT
+	lda shapes_qx                     ; one array at sp*4: 96 seeds is 384 bytes,
+	sta shapes_stkxl,x                ; so that byte offset wrapped and slots
+	lda shapes_qx+1                   ; 64-95 aliased onto 0-31, silently
+	sta shapes_stkxh,x                ; overwriting seeds still to be filled
 	lda shapes_qy
-	sta shapes_stk+2,x
+	sta shapes_stkyl,x
 	lda shapes_qy+1
-	sta shapes_stk+3,x
+	sta shapes_stkyh,x
 	inc shapes_sp
 	rts
 
 shapes_pop
 	dec shapes_sp
-	lda shapes_sp
-	asl
-	asl
-	tax
-	lda shapes_stk,x
+	ldx shapes_sp
+	lda shapes_stkxl,x
 	sta shapes_qx
-	lda shapes_stk+1,x
+	lda shapes_stkxh,x
 	sta shapes_qx+1
-	lda shapes_stk+2,x
+	lda shapes_stkyl,x
 	sta shapes_qy
-	lda shapes_stk+3,x
+	lda shapes_stkyh,x
 	sta shapes_qy+1
 	rts
 
@@ -9941,8 +10041,14 @@ shapes_tx
     .word 0
 shapes_run
     .byte 0
-shapes_stk
-    .fill FLOOD_MAX * 4, 0
+shapes_stkxl
+    .fill FLOOD_MAX, 0
+shapes_stkxh
+    .fill FLOOD_MAX, 0
+shapes_stkyl
+    .fill FLOOD_MAX, 0
+shapes_stkyh
+    .fill FLOOD_MAX, 0
 
 ; ---------------------------------------------------------------------
 ; shape_polygon / shape_fpolygon -- regular convex polygons (X16_USE_SHAPES_POLY)
@@ -10757,6 +10863,13 @@ poly_prod  .fill 4, 0
 ;
 ;   in: shl_x0/shl_y0 -> shl_x1/shl_y1 (signed words), shl_col = colour
 ;       draws through SHP_PSET, so it clips wherever pset clips.
+;
+; The error term is a signed word carrying dx + |dy|, so the endpoints
+; must satisfy |dx| + |dy| <= 16383. Past that e2 = 2*err wraps, the walk
+; loses its way, and since it only stops on x == x1 AND y == y1 it can
+; run for a very long time. The shapes here stay inside cx +/- 255; a
+; direct caller (or shape_bezier with far-flung control points) must
+; clip its own coordinates first.
 ; ---------------------------------------------------------------------
 .if xuse_shp_line
 
@@ -11097,27 +11210,35 @@ shapes_rr_hspan
 	bvc +
 	eor #$80
 +	bmi shapes_rr_hsd
-	lda X16_P2                  ; hold the row (pset reloads P0..P3)
-	sta rr_ry
-	lda X16_P3
-	sta rr_ry+1
+	lda X16_P2                  ; hold the row AND the x cursor: the
+	sta rr_ry                   ; binding contract at the top of this file
+	lda X16_P3                  ; lets SHP_PSET clobber the whole P block,
+	sta rr_ry+1                 ; so reading P0/P1 back after the call --
+	lda X16_P0                  ; and testing it for equality against cxr --
+	sta rr_cur                  ; could loop forever on a binding that
+	lda X16_P1                  ; rewrites them
+	sta rr_cur+1
 shapes_rr_hsl
+	lda rr_cur
+	sta X16_P0
+	lda rr_cur+1
+	sta X16_P1
 	lda rr_ry
 	sta X16_P2
 	lda rr_ry+1
 	sta X16_P3
 	lda rr_col
 	jsr SHP_PSET
-	lda X16_P0                  ; at cxr ?
+	lda rr_cur                  ; at cxr ?
 	cmp rr_cxr
 	bne shapes_rr_hsn
-	lda X16_P1
+	lda rr_cur+1
 	cmp rr_cxr+1
 	beq shapes_rr_hsd
 shapes_rr_hsn
-	inc X16_P0
+	inc rr_cur
 	bne shapes_rr_hsl
-	inc X16_P1
+	inc rr_cur+1
 	bra shapes_rr_hsl
 shapes_rr_hsd
 	rts
@@ -11132,39 +11253,46 @@ shapes_rr_vspan
 	bvc +
 	eor #$80
 +	bmi shapes_rr_vsd
-	lda X16_P0
-	sta rr_rx
+	lda X16_P0                  ; hold the column AND the y cursor, for the
+	sta rr_rx                   ; reason shapes_rr_hspan gives above
 	lda X16_P1
 	sta rr_rx+1
 	lda rr_cyt
-	sta X16_P2
+	sta rr_cur
 	lda rr_cyt+1
-	sta X16_P3
+	sta rr_cur+1
 shapes_rr_vsl
 	lda rr_rx
 	sta X16_P0
 	lda rr_rx+1
 	sta X16_P1
+	lda rr_cur
+	sta X16_P2
+	lda rr_cur+1
+	sta X16_P3
 	lda rr_col
 	jsr SHP_PSET
-	lda X16_P2                  ; at cyb ?
+	lda rr_cur                  ; at cyb ?
 	cmp rr_cyb
 	bne shapes_rr_vsn
-	lda X16_P3
+	lda rr_cur+1
 	cmp rr_cyb+1
 	beq shapes_rr_vsd
 shapes_rr_vsn
-	inc X16_P2
+	inc rr_cur
 	bne shapes_rr_vsl
-	inc X16_P3
+	inc rr_cur+1
 	bra shapes_rr_vsl
 shapes_rr_vsd
 	rts
 
 ; walk the quarter circle once; each octant point plots at all 4 corners
 shapes_rr_corners
-	lda rr_r                    ; x = r, y = 0, err = 1 - r
-	sta rr_wx
+	lda rr_r
+	bne shapes_rr_cinit               ; r = 0: no arc to walk. The straight spans
+	rts                         ; already cover the corner pixels, and the
+shapes_rr_cinit
+	sta rr_wx                   ; x = r, y = 0, err = 1 - r
 	stz rr_wy
 	sec
 	lda #1
@@ -11393,8 +11521,9 @@ shapes_rr_bz
 	bne shapes_rr_bz
 	lda rr_r                    ; ext[0] = r
 	sta rr_ext
-	lda rr_r                    ; walk the quarter circle
-	sta rr_wx
+	beq shapes_rr_bwd                 ; r = 0: ext[] stays all zero, and the walk
+	lda rr_r                    ; would `dec rr_wx` from 0 to 255
+	sta rr_wx                   ; walk the quarter circle
 	stz rr_wy
 	sec
 	lda #1
@@ -11443,6 +11572,7 @@ rr_cyb  .word 0
 rr_m    .word 0
 rr_ry   .word 0
 rr_rx   .word 0
+rr_cur  .word 0                 ; span cursor, held across SHP_PSET
 rr_ins  .word 0
 rr_ca   .byte 0
 rr_cb   .byte 0
@@ -12577,8 +12707,16 @@ fx_mult
 ; ---------------------------------------------------------------------
 ; fx_fill -- fill VRAM through the 32-bit write cache (~4x a byte loop)
 ;   in:  A = byte value
-;        X16_P0/P1/P2 = destination VRAM address (17-bit)
+;        X16_P0/P1/P2 = destination VRAM address (17-bit, MUST be a
+;                       multiple of 4 -- see below)
 ;        X16_P3/P4    = byte count
+;
+; The cache writes a 4-byte ALIGNED quad: VERA ignores the low two
+; address bits for a cached write. A destination that is not a multiple
+; of 4 therefore overwrites the bytes below it and leaves the same number
+; at the top of the span untouched. fx_copy documents the same rule; both
+; of this library's callers (gfx2l_clear, gfx2h_clear) are aligned by
+; construction. Use vera_fill for an unaligned span.
 ;
 ; With Cache Write Enable set, one store to DATA0 writes all four cache
 ; bytes. Stepping the port by 4 covers the region a quad at a time; any
@@ -13700,6 +13838,10 @@ fxd_den .word 0
 fxd_rem .word 0
 
 ; fxd_num(24) / fxd_den(16) -> quotient in fxd_num, remainder fxd_rem
+; The running remainder is kept in 16 bits, so a divisor above $8000
+; loses the carry out of the shift and returns a wrong quotient. Every
+; caller here divides by a screen span (at most 319), which is why this
+; has never mattered; a new caller must stay under $8001.
 verafx_udiv24
     stz fxd_rem
     stz fxd_rem+1
@@ -14194,6 +14336,20 @@ _no_sprcol
 _no_aflow
 .endif
 
+    ; VSYNC may have asserted while a LINE or SPRCOL callback was running.
+    ; The snapshot above predates it, and the KERNAL we chain to acks it
+    ; without telling us -- so with a line handler near the bottom of the
+    ; frame the counter stopped advancing and vsync_wait hung. Re-read the
+    ; live ISR, and count it only if this pass has not counted one already
+    ; (a VSYNC seen at entry is still asserted here: we do not ack it).
+    lda irq_isr
+    and #VERA_IRQ_VSYNC
+    bne _counted
+    lda VERA_ISR
+    and #VERA_IRQ_VSYNC
+    beq _counted
+    inc irq_frame_count
+_counted
     jmp (irq_old_vector)
 
 irq_call_line
@@ -14712,10 +14868,12 @@ _att_ok
 
 _sustain
     lda env_sus,x
-    cmp #255
-    beq _next                   ; 255: hold until psg_env_release
-    dec env_sus,x
+    beq _sus_over               ; 0 = release immediately, as documented.
+    cmp #255                    ; Decrementing first wrapped it to 255 --
+    beq _next                   ; which IS the hold-forever sentinel, so
+    dec env_sus,x               ; the note never released.
     bne _next
+_sus_over
     lda #3                      ; sustain over: release
     sta env_stage,x
     bra _next                   ; volume unchanged this tick
@@ -15048,7 +15206,7 @@ ar_note_freq2psg      ; in: X/Y=Hz, out: X/Y=PSG freq
     #jsrfar rom_notecon_freq2psg, BANK_AUDIO
     rts
 
-ar_note_midi2bas      ; in: A=MIDI note, out: A=X=BASIC note
+ar_note_midi2bas      ; in: X=MIDI note, out: A=X=BASIC note
     #jsrfar rom_notecon_midi2bas, BANK_AUDIO
     rts
 
@@ -15253,6 +15411,9 @@ ZSM_PCM_STEREO     = %00010000
 ; 16 set returns ZSM_ERR_RANGE.
 ; ---------------------------------------------------------------------
 zsm_init
+    lda #ZSM_FLAG_ACTIVE        ; stop first: an IRQ-driven zsm_tick must
+    trb zsm_flags               ; not run while these pointers are half
+                                ; written. zsm_play resumes, _state arms.
     lda r0L
     sta zsm_baseL
     lda r0H
@@ -15261,11 +15422,14 @@ zsm_init
     ldy #0
     lda (r0),y
     cmp #'z'
-    bne _magic
+    bne _badmagic
     iny
     lda (r0),y
     cmp #'m'
-    bne _magic
+    beq _goodmagic
+_badmagic                       ; trampoline: the error tail sits just past
+    bra _magic                  ; branch range from the first test
+_goodmagic
 
     ldy #2
     lda (r0),y
@@ -15316,6 +15480,7 @@ zsm_init
     lda zsm_baseH
     adc X16_T1
     sta zsm_loopH
+    bcs _range                  ; base + loop offset left the address space
     lda #(ZSM_FLAG_ACTIVE | ZSM_FLAG_LOOP)
     bra _state
 _noloop
@@ -15357,6 +15522,8 @@ _pcm_error
 ;   in: r0 = stream pointer, r1 = loop pointer or 0 for no loop
 ; ---------------------------------------------------------------------
 zsm_init_stream
+    lda #ZSM_FLAG_ACTIVE        ; as zsm_init: stop before the pointers move
+    trb zsm_flags
     lda r0L
     sta zsm_baseL
     sta zsm_ptrL
@@ -15404,9 +15571,15 @@ zsm_stop
     jsr pcm_stream_stop
     stz VERA_AUDIO_RATE
 .endif
+    ; Silence what the stream left sounding. A PSG voice is a free-running
+    ; oscillator and a keyed-on YM channel sustains, so stopping mid-note
+    ; without this leaves 24 channels audible forever.
+    jsr zsm_silence
     rts
 
 zsm_rewind
+    php                         ; the pointer is two bytes; an IRQ-driven
+    sei                         ; tick must not read it half rewound
     lda zsm_startL
     sta zsm_ptrL
     lda zsm_startH
@@ -15414,6 +15587,37 @@ zsm_rewind
     stz zsm_delay
     lda #ZSM_FLAG_EOF
     trb zsm_flags
+    plp
+    rts
+
+; ---------------------------------------------------------------------
+; zsm_silence -- key off all 8 YM channels and mute all 16 PSG voices.
+;   Clobbers A, X, Y, X16_T0/T1, and VERA's ADDRSEL + data port 0
+;   address (through zsm_psg_write).
+; ---------------------------------------------------------------------
+zsm_silence
+    stz zsm_tmp                 ; YM $08 = key on/off: slots 6:3 clear
+_ym                             ; releases all four operators of channel A
+    lda zsm_tmp
+    ldx #$08
+    jsr zsm_ym_write
+    inc zsm_tmp
+    lda zsm_tmp
+    cmp #8
+    bne _ym
+
+    lda #2                      ; PSG volume byte of voice v is v*4 + 2
+    sta zsm_tmp
+_psg
+    ldx zsm_tmp
+    lda #0
+    jsr zsm_psg_write
+    lda zsm_tmp
+    clc
+    adc #4
+    sta zsm_tmp
+    cmp #(16*4 + 2)             ; past the last voice
+    bne _psg
     rts
 
 ; ---------------------------------------------------------------------
@@ -15449,6 +15653,12 @@ zsm_lasterr
 ; ---------------------------------------------------------------------
 ; zsm_tick -- advance playback by one player tick
 ;   out: A = ZSM_FLAG_* bits, carry set if still active
+;
+; Clobbers A, X, Y, X16_T0/T1, VERA's ADDRSEL and the data port 0
+; address (it writes PSG registers through VRAM), and with X16_USE_ZSM_PCM
+; also X16_P0-P3 and VERA_AUDIO_CTRL/AUDIO_RATE. Driving this from an IRQ
+; means saving whatever VERA state the interrupted code was using -- see
+; system/irq.asm's callback rules.
 ; ---------------------------------------------------------------------
 zsm_tick
     lda zsm_flags
@@ -15456,8 +15666,8 @@ zsm_tick
     beq _inactive
     lda zsm_delay
     beq _commands
-    dec zsm_delay
-    bra zsm_status
+    dec zsm_delay               ; the tick that reaches 0 runs the commands:
+    bne zsm_status              ; a delay of n must wait n ticks, not n+1
 _commands
     jsr zsm_next
     cmp #$40
@@ -15494,16 +15704,16 @@ _ym_loop
 
 _ext
     jsr zsm_next
-    sta X16_T0                  ; ccnnnnnn
+    pha                         ; ccnnnnnn: channel 7:6, payload length 5:0
     and #$3f
-    sta X16_T1                  ; remaining payload length
-    lda X16_T0
+    sta zsm_extlen              ; NOT X16_T1 -- zsm_next stores the stream
+    pla                         ; pointer through X16_TPTR0, which IS T0/T1
     and #%11000000
     bne _skip_ext
     jsr zsm_ext_pcm
     bra _commands
 _skip_ext
-    jsr zsm_skip_t1
+    jsr zsm_skip_ext
     bra _commands
 
 _eof
@@ -15540,33 +15750,33 @@ zsm_next_done
     rts
 
 ; ---------------------------------------------------------------------
-; zsm_skip_t1 -- skip X16_T1 stream bytes
+; zsm_skip_ext -- skip zsm_extlen stream bytes
 ; ---------------------------------------------------------------------
-zsm_skip_t1
-    lda X16_T1
+zsm_skip_ext
+    lda zsm_extlen
     beq zsm_skip_done
 zsm_skip_loop
     jsr zsm_next
-    dec X16_T1
+    dec zsm_extlen
     bne zsm_skip_loop
 zsm_skip_done
     rts
 
 ; ---------------------------------------------------------------------
 ; zsm_ext_pcm -- handle EXTCMD channel 0 command/argument pairs
-;   X16_T1 = payload length. Unknown/truncated commands are consumed.
+;   zsm_extlen = payload length. Unknown/truncated commands are consumed.
 ; ---------------------------------------------------------------------
 zsm_ext_pcm
-    lda X16_T1
+    lda zsm_extlen
     beq zsm_ext_pcm_done
 zsm_ext_pcm_loop
     jsr zsm_next
     tax                         ; command
-    dec X16_T1
+    dec zsm_extlen
     beq zsm_ext_pcm_done        ; truncated command: consumed
     jsr zsm_next
     tay                         ; argument
-    dec X16_T1
+    dec zsm_extlen
     txa
     beq zsm_ext_pcm_ctrl
     cmp #1
@@ -15593,7 +15803,7 @@ zsm_ext_pcm_trigger
     jsr zsm_pcm_trigger
 .endif
 zsm_ext_pcm_next
-    lda X16_T1
+    lda zsm_extlen
     bne zsm_ext_pcm_loop
 zsm_ext_pcm_done
     rts
@@ -15729,18 +15939,20 @@ _present
     beq _index_ok
     rts
 _index_ok
-    ; instrument pointer = header + 4 + index*16
+    ; instrument pointer = header + 4 + index*16.  The offset cannot live
+    ; in X16_T1/T2: X16_TPTR0 IS X16_T0/T1, so building the pointer below
+    ; would overwrite it a instruction before it is added.
     lda X16_T0
-    sta X16_T1
-    stz X16_T2
-    asl X16_T1
-    rol X16_T2
-    asl X16_T1
-    rol X16_T2
-    asl X16_T1
-    rol X16_T2
-    asl X16_T1
-    rol X16_T2
+    sta zsm_ofsL
+    stz zsm_ofsH
+    asl zsm_ofsL
+    rol zsm_ofsH
+    asl zsm_ofsL
+    rol zsm_ofsH
+    asl zsm_ofsL
+    rol zsm_ofsH
+    asl zsm_ofsL
+    rol zsm_ofsH
     clc
     lda zsm_pcm_hdrL
     adc #4
@@ -15750,10 +15962,10 @@ _index_ok
     sta X16_TPTR0+1
     clc
     lda X16_TPTR0
-    adc X16_T1
+    adc zsm_ofsL
     sta X16_TPTR0
     lda X16_TPTR0+1
-    adc X16_T2
+    adc zsm_ofsH
     sta X16_TPTR0+1
 
     ldy #1
@@ -15872,6 +16084,8 @@ zsm_tickL  .byte 60
 zsm_tickH  .byte 0
 zsm_delay  .byte 0
 zsm_flags  .byte 0
+zsm_extlen .byte 0              ; EXTCMD payload bytes still to consume
+zsm_tmp    .byte 0              ; zsm_silence's channel/voice walker
 .if xuse_zsm_pcm
 zsm_pcm_hdrL  .byte 0
 zsm_pcm_hdrH  .byte 0
@@ -15880,6 +16094,8 @@ zsm_pcm_dataH .byte 0
 zsm_pcm_last  .byte 0
 zsm_pcm_rate  .byte 0
 zsm_pcm_flags .byte 0
+zsm_ofsL      .byte 0           ; instrument index * 16
+zsm_ofsH      .byte 0
 .endif
 
 ; (end zone)
@@ -16501,7 +16717,16 @@ mse_get
     jmp MOUSE_GET
 
 ; ---------------------------------------------------------------------
-; mse_show -- show and select cursor sprite A, keeping current bounds
+; The KERNAL reads X/Y as the mouse field size, and X = Y = 0 means "use
+; the current screen mode's dimensions" -- it does NOT mean "leave the
+; field alone". These three therefore RESET a custom field set with
+; mse_config back to the full screen; there is no KERNAL call that
+; changes visibility while preserving it. A program that restricted the
+; pointer must call mse_config again after showing or hiding it.
+; ---------------------------------------------------------------------
+
+; ---------------------------------------------------------------------
+; mse_show -- show and select cursor sprite A; resets the field (above)
 ; ---------------------------------------------------------------------
 mse_show
     ldx #0
@@ -16509,7 +16734,8 @@ mse_show
     jmp MOUSE_CONFIG
 
 ; ---------------------------------------------------------------------
-; mse_show_keep -- show mouse without changing cursor sprite or bounds
+; mse_show_keep -- show mouse without changing the cursor sprite;
+;                  resets the field (above)
 ; ---------------------------------------------------------------------
 mse_show_keep
     lda #$ff
@@ -16518,7 +16744,7 @@ mse_show_keep
     jmp MOUSE_CONFIG
 
 ; ---------------------------------------------------------------------
-; mse_hide -- hide mouse, keeping current bounds
+; mse_hide -- hide mouse; resets the field (above)
 ; ---------------------------------------------------------------------
 mse_hide
     lda #0
@@ -16873,6 +17099,18 @@ SER_SCAN_STEP  = 8              ; UARTs sit on 8-byte boundaries
 ; make a floating bus very unlikely to answer by accident. Interrupts
 ; are held off across the probe so an IRQ handler never sees the UART
 ; mid-fingerprint.
+;
+; IT WRITES TO EVERY CANDIDATE SLOT it examines, not only to the ones
+; that answer: offsets 1, 4 and 7 are written before anything is known
+; about what lives there. Whatever else is plugged into that window sees
+; those stores.
+;
+; One such card is known about and skipped: the VERA_2 hi-res layer that
+; the bitmap8h and bitmap4h engines drive occupies $9F60-$9F6F, and if
+; its signature is present the scan starts above it instead of walking
+; its address and palette registers. Any OTHER card in $9F60-$9FF8 is
+; still written to blind, so if you know where your UART is, call
+; ser_init with that base rather than scanning for it.
 ; ---------------------------------------------------------------------
 ser_detect
     stz ser_u0
@@ -16883,6 +17121,20 @@ ser_detect
     sta X16_T2
     lda #>SER_SCAN_FIRST
     sta X16_T3
+    ; The VERA_2 hi-res card lives at $9F60-$9F6F, which is the first TWO
+    ; candidate slots, and serial_probe writes to a slot before it knows what
+    ; is in it -- it was walking that card's ID, address and palette
+    ; registers. Reading its signature costs nothing and cannot be
+    ; mistaken for a UART: offset 1 of a 16C550 is IER, whose top nibble
+    ; always reads back 0, so it can never hold $B5. Start above it.
+    lda VERA2_ID
+    cmp #VERA2_ID_MAGIC
+    bne _noconflict
+    lda #<(VERA2_BLIT_CTRL + 1)
+    sta X16_T2
+    lda #>(VERA2_BLIT_CTRL + 1)
+    sta X16_T3
+_noconflict
     php
     sei
 _scan
@@ -17005,8 +17257,10 @@ ser_init
     ldy #SER_FCR                ; FIFO enable + reset both, RX trigger 8
     lda #$87
     sta (X16_T0),y
-    ldy #SER_MCR                ; DTR+RTS, auto-flow, OUT2 (ZiModem stream)
-    lda #$27
+    ldy #SER_MCR                ; DTR + RTS + OUT1 + auto-flow. The bits
+    lda #$27                    ; are DTR 0, RTS 1, OUT1 2, OUT2 3, LOOP 4,
+                                ; AFE 5 -- so this asserts OUT1, not OUT2
+                                ; as an earlier comment here claimed.
     sta (X16_T0),y
     ldy #SER_IER                ; no interrupts: this module polls
     lda #$00
@@ -17167,10 +17421,27 @@ _noneedlehi
     beq _done
     bra _loop
 _reset
-    lda X16_T4                  ; mismatch: rewind the needle cursor
+    ; The byte that broke the match may START a fresh one -- "OOK\r\n"
+    ; against the needle "OK\r\n". It is already stored, so retest it
+    ; against needle[0] instead of reading past it; dropping it missed
+    ; every terminator preceded by its own prefix, and the caller could
+    ; not tell the unmatched buffer from a matched one.
+    pha
+    lda X16_P6                  ; already at needle[0]? then this byte
+    cmp X16_T4                  ; really cannot start a match
+    bne _rewind
+    lda X16_P7
+    cmp X16_T5
+    beq _drop
+_rewind
+    lda X16_T4
     sta X16_P6
     lda X16_T5
     sta X16_P7
+    pla
+    bra _cmp
+_drop
+    pla
     bra _loop
 _done
     rts
@@ -17189,6 +17460,7 @@ ser_discard_until
     sta X16_P7
 _loop
     jsr ser_get_wait
+_test                           ; re-entered with the byte still in A
     cmp (X16_P6)
     bne _reset
     inc X16_P6
@@ -17199,10 +17471,26 @@ _nohi
     beq _done                   ; hit the NUL: whole needle matched
     bra _loop
 _reset
+    ; The byte that broke the match may START a fresh one -- "OOK\r\n"
+    ; against the needle "OK\r\n". Dropping it and reading the next byte
+    ; missed every terminator preceded by its own prefix, and with no
+    ; byte limit this routine then blocked forever.
+    pha
+    lda X16_P6                  ; already at needle[0]? then this byte
+    cmp X16_T4                  ; really cannot start a match
+    bne _rewind
+    lda X16_P7
+    cmp X16_T5
+    beq _drop
+_rewind
     lda X16_T4
     sta X16_P6
     lda X16_T5
     sta X16_P7
+    pla
+    bra _test
+_drop
+    pla
     bra _loop
 _done
     rts
@@ -17421,10 +17709,23 @@ zi_hex_chunk
     lda #0
     rts
 _data
+    ; Everything below validates the line before decoding it. A modem
+    ; that answers mid-download ("ERROR", "NO CARRIER") or a noisy link
+    ; used to be fed straight to zi_hexdecode: an ODD digit count made
+    ; its `dec/dec : beq` terminator unreachable and it wrote through
+    ; X16_P0 across the whole address space, VERA registers included.
+    lda X16_P5
+    bne _notdata                ; longer than 255: not a payload line
     lda X16_P4                  ; digits = line length minus the CR/LF
     sec
     sbc #2
+    bcc _notdata                ; shorter than the CR/LF itself
+    beq _notdata                ; nothing but the CR/LF
     tay
+    lsr
+    bcs _notdata                ; odd digit count: not hex payload
+    jsr zimodem_zi_allhex              ; and every digit must really be hex
+    bcs _notdata
     lda zi_dest                 ; decode into the caller's buffer
     sta X16_P0
     lda zi_dest+1
@@ -17432,6 +17733,43 @@ _data
     lda #<zi_linebuf
     ldx #>zi_linebuf
     jmp zi_hexdecode            ; returns A = bytes produced
+_notdata
+    lda #0                      ; end the transfer rather than hand the
+    rts                         ; caller decoded noise
+
+; carry CLEAR if the first Y bytes of zi_linebuf are all hex digits.
+; Y is at most 88 here (the 90-byte line cap less the CR/LF), so the
+; bpl walk is in range. Preserves nothing but the answer.
+zimodem_zi_allhex
+    dey
+zimodem_zi_ah_loop
+    lda zi_linebuf,y
+    jsr zimodem_zi_ishex
+    bcc zimodem_zi_ah_bad
+    dey
+    bpl zimodem_zi_ah_loop
+    clc
+    rts
+zimodem_zi_ah_bad
+    sec
+    rts
+
+; carry set if A is an uppercase hex digit, the only form ZiModem sends
+zimodem_zi_ishex
+    cmp #'0'
+    bcc zimodem_zi_ih_no
+    cmp #'9'+1
+    bcc zimodem_zi_ih_yes
+    cmp #'A'
+    bcc zimodem_zi_ih_no
+    cmp #'F'+1
+    bcs zimodem_zi_ih_no
+zimodem_zi_ih_yes
+    sec
+    rts
+zimodem_zi_ih_no
+    clc
+    rts
 
 ; ---------------------------------------------------------------------
 ; zi_hex_close -- swallow the trailing "OK" after the payload.
@@ -17447,6 +17785,10 @@ zi_hex_close
 ;   out: A = bytes written (Y / 2); X16_P0/P1 advanced past them
 ; The one piece of ZiModem logic with an independent oracle, so it is a
 ; standalone routine the test suite drives directly.
+;
+; An odd Y stops after the last WHOLE pair rather than running away: the
+; loop consumes two digits per pass, so testing for exactly 0 left a
+; dangling digit counting 1 -> 255 -> 253 ... and never terminating.
 ; ---------------------------------------------------------------------
 zi_hexdecode
     sta X16_T4                  ; T4/T5 = source cursor
@@ -17455,7 +17797,8 @@ zi_hexdecode
     stz X16_T7                  ; T7 = bytes produced
 _loop
     lda X16_T6
-    beq _done
+    cmp #2
+    bcc _done
     ldy #0
     lda (X16_T4),y              ; high nibble digit
     jsr zimodem_nib
@@ -18187,10 +18530,19 @@ stack_pop
     rts
 
 ; ---------------------------------------------------------------------
-; stack_popw -- pop one word.  out: A = low, X = high
+; stack_popw -- pop one word.  out: A = low, X = high, carry clear.
 ; The high byte was pushed last, so it comes off first.
+; Carry SET means fewer than two bytes were stored and nothing was
+; popped: stack_isempty cannot express that, since one byte left is not
+; empty but is not a word either.
 ; ---------------------------------------------------------------------
 stack_popw
+    jsr stack_size              ; two bytes have to BE there. stack_isempty
+    cpx #0                      ; only answers for a single stack_pop, so a
+    bne _have                   ; caller guarding a popw with it read past
+    cmp #2                      ; the top of the stack and left the pointer
+    bcc _under                  ; above it, corrupt for the rest of the run
+_have
     lda RAM_BANK
     sta X16_T3
     lda stack_bank
@@ -18207,6 +18559,10 @@ stack_popw
     sta RAM_BANK
     lda X16_T2
     ldx X16_T4
+    clc
+    rts
+_under
+    sec                         ; nothing popped, the pointer stays put
     rts
 
 ; ---------------------------------------------------------------------
@@ -18409,9 +18765,18 @@ ring_get
     rts
 
 ; ---------------------------------------------------------------------
-; ring_getw -- dequeue one word.  out: A = low, X = high
+; ring_getw -- dequeue one word.  out: A = low, X = high, carry clear.
+; Carry SET means fewer than two bytes were queued and nothing was
+; dequeued: ring_isempty cannot express that, since one byte left is not
+; empty but is not a word either.
 ; ---------------------------------------------------------------------
 ring_getw
+    lda ring_fill+1             ; two bytes have to BE there. ring_isempty
+    bne _have                   ; only answers for a single ring_get, so a
+    lda ring_fill               ; caller guarding a getw with it walked the
+    cmp #2                      ; tail past the head on an odd last byte
+    bcc _under                  ; and left the ring corrupt for good
+_have
     jsr ringbuffer_filldec
     jsr ringbuffer_filldec
     lda RAM_BANK
@@ -18430,6 +18795,10 @@ ring_getw
     sta RAM_BANK
     lda X16_T2
     ldx X16_T4
+    clc
+    rts
+_under
+    sec                         ; nothing dequeued, nothing moved
     rts
 
 ; ---------------------------------------------------------------------
@@ -18468,15 +18837,19 @@ ringbuffer_notempty
     rts
 
 ; ---------------------------------------------------------------------
-; ring_isfull -- out: carry set if less than 2 bytes remain (fill >= 8191)
+; ring_isfull -- out: carry set if less than 2 bytes remain (fill >= 8190)
+;
+; 8190 and not 8191: only RING_CAP-1 bytes are usable, so a fill of 8190
+; leaves a single byte free -- a ring_putw on top of that takes fill to
+; 8192 and ring_free's (RING_CAP-1) - fill underflows to $FFFF.
 ; ---------------------------------------------------------------------
 ring_isfull
     lda ring_fill+1
-    cmp #>(RING_CAP-1)          ; $1F
+    cmp #>(RING_CAP-2)          ; $1F
     bcc ringbuffer_notfull
     bne ringbuffer_full
     lda ring_fill
-    cmp #<(RING_CAP-1)          ; $FF
+    cmp #<(RING_CAP-2)          ; $FE
     bcc ringbuffer_notfull
 ringbuffer_full
     sec
@@ -18830,8 +19203,13 @@ fileio_setup
 ; MACPTR and MCIOUT are X16 block transfers for the current channel:
 ;       A   = byte count, 0 lets the implementation choose
 ;       X/Y = destination/source pointer
+;       C   = ON ENTRY, selects the addressing mode: clear advances the
+;             pointer through memory, SET holds it still so every byte
+;             lands on (or comes from) the same address -- which is how
+;             storage/bmx.asm streams to a VERA data port. Set it
+;             deliberately; do not inherit whatever the caller left.
 ;       X/Y = bytes transferred on return
-;       C   = set when unsupported/error
+;       C   = on return, set when unsupported/error
 ; =====================================================================
 
 ; (zone: file scope in 64tass)
@@ -19069,6 +19447,7 @@ FS_PRG_SKIP = 6                 ; load address, link, line number
 fs_prg_entry
     stz X16_T0                  ; the result, built a digit at a time
     stz X16_T1
+    stz X16_T7                  ; "the last byte has been delivered"
 
     lda X16_P2
     jsr fs_setname
@@ -19146,13 +19525,24 @@ load_quit
     ldy X16_T1
     rts
 
-; one byte from the open channel; carry set if the file ended first
+; one byte from the open channel; carry set if the file ended first.
+;
+; CBM devices raise the EOF status bit WITH the last valid byte rather
+; than after it, so treating any nonzero status as "no byte" threw that
+; byte away: a stub whose final digit was also the final byte of the file
+; parsed as 207 instead of 2071. The byte is delivered and the end is
+; reported on the following call.
 load_getb
+    lda X16_T7                  ; the EOF byte has already been handed out
+    bne load_getb_end
     jsr CHRIN
     sta X16_T5
     jsr READST
-    cmp #0
-    bne load_getb_end
+    beq load_getb_ok
+    and #$40                    ; EOF alone: T5 still holds a real byte
+    beq load_getb_end               ; anything else is a device error
+    sta X16_T7
+load_getb_ok
     lda X16_T5
     clc
     rts
@@ -19408,8 +19798,9 @@ dos_too_long
     stz dos_msg
     ldy #0
     lda #$FF
-    sec
-    rts
+    sta dos_code                ; the rejection has to reach dos_lasterr as
+    sec                         ; well, or it keeps answering for whichever
+    rts                         ; command ran before this one
 
 DOS_MSG_MAX = 64
 DOS_CMD_MAX = 80
@@ -19500,7 +19891,7 @@ dir_setnam
     ldy #0                      ; secondary 0: the directory, not a file
     jsr SETLFS
     jsr OPEN
-    bcs dir_openbad
+    bcs dir_nothing_open           ; the OPEN itself failed: nothing to undo
     ldx #DIR_LFN
     jsr CHKIN
     bcs dir_openbad
@@ -19510,7 +19901,15 @@ dir_setnam
     bcs dir_openbad
     clc
     rts
+
+; Past the OPEN, DIR_LFN is live and the input channel may be pointing at
+; it. Returning without this cleanup left the logical file claimed and the
+; channel redirected, so every later dir_open answered FILE OPEN.
 dir_openbad
+    jsr CLRCHN
+    lda #DIR_LFN
+    jsr CLOSE
+dir_nothing_open
     sec
     rts
 
@@ -19745,6 +20144,13 @@ FPK_ESIZE  = 40                  ; one cache entry: type, then the name
 FPK_ETYPE  = 0
 FPK_ENAME  = 1
 FPK_MAXENT = 64
+FPK_NMSIZE = 40                  ; fp_nm: one name, or one being typed
+FPK_DIRMAX = 63                  ; the longest path fp_curdir will keep
+FPK_FULLSZ = FPK_DIRMAX+1+FPK_ESIZE-2+1
+                                 ; ...so fp_full has to hold that, a
+                                 ; slash, the longest name a cache entry
+                                 ; can hold, and the terminator. At 64 a
+                                 ; deep directory silently lost its tail.
 FPK_NOBANK = 255                 ; fp_saveunder: keep nothing
 FPK_PTOP   = 3                   ; the panel's first row
 FPK_DBLCLK = 30                  ; jiffies: half a second
@@ -19774,9 +20180,9 @@ fp_chset    .byte 3             ; PET upper/lower; 255 leaves it alone
 fp_startat  .word 0             ; 0 means "/"
 
 ; ---- state -----------------------------------------------------------
-fp_curdir   .fill 64
-fp_full     .fill 64
-fp_nm       .fill 40
+fp_curdir   .fill FPK_DIRMAX+1
+fp_full     .fill FPK_FULLSZ
+fp_nm       .fill FPK_NMSIZE
 fp_nent     .byte 0
 fp_sel      .byte 0
 fp_top      .byte 0
@@ -20483,7 +20889,7 @@ filepick_rd_pass
     stz X16_P0                  ; dir_open with no name: "$"
     stz X16_P1
     stz X16_P2
-    lda #8
+    lda dos_device              ; the same drive the dos_* calls act on
     sta X16_P3
     jsr dir_open
     bcc filepick_hop5
@@ -20602,6 +21008,11 @@ filepick_rd_done
     rts
 
 ; fp_curdir + "/" + the name at X16_P0/P1 -> fp_full
+;
+; The directory half is copied whole. Both filepick_descend and fp_open let
+; fp_curdir grow to 63 characters, so a 40-character bound here quietly
+; cut deep paths in two and handed the caller the name of a file that
+; was never on the drive.
 filepick_make_path
     lda X16_P0
     sta fp_src
@@ -20613,7 +21024,7 @@ filepick_mp_dir
     beq filepick_mp_slash
     sta fp_full,y
     iny
-    cpy #40
+    cpy #FPK_DIRMAX
     bne filepick_mp_dir
 filepick_mp_slash
     cpy #0
@@ -20642,7 +21053,7 @@ filepick_mp_copy
     sta fp_full,y
     inc fp_tmp
     lda fp_tmp
-    cmp #63
+    cmp #FPK_FULLSZ-1           ; the terminator's own place, always kept
     bcs filepick_mp_end
     inx
     bne filepick_mp_copy
@@ -20750,32 +21161,43 @@ filepick_ds_aend
 ; =====================================================================
 ; the panel
 ; =====================================================================
+; The panel is measured against the SCREEN, asked for its real size.
+; The mode number was the wrong question: $00 is 80x60 but $01 is 80x30
+; and $04 is 40x15, and reading "anything but $00" as 40x30 drew a
+; half-width panel down the left of an 80x30 screen -- with the pointer
+; penned into that half -- and 22 rows of listing onto a screen with 15.
 filepick_layout
-    jsr screen_get_mode
-    cmp #0
-    bne filepick_ly_small
-    lda #80
-    sta fp_scrw
-    lda #60
-    sta fp_scrh
-    lda #40
-    sta fp_rows
-    lda #6
-    sta fp_left
-    lda #68
-    sta fp_wide
-    rts
-filepick_ly_small
-    lda #40
-    sta fp_scrw
-    lda #30
-    sta fp_scrh
-    lda #22
-    sta fp_rows
+    jsr screen_get_size         ; X = columns, Y = rows
+    stx fp_scrw
+    sty fp_scrh
+    ; 80 columns can afford a margin either side; 40 cannot
     lda #1
+    cpx #64
+    bcc filepick_ly_margin
+    lda #6
+filepick_ly_margin
     sta fp_left
-    lda #38
+    lda fp_scrw
+    sec
+    sbc fp_left
+    sbc fp_left
     sta fp_wide
+    ; the rows: the top margin mirrored at the bottom, less the header
+    ; and the footer, and never more than the 40 the save-under is
+    ; budgeted for
+    lda fp_scrh
+    sec
+    sbc #FPK_PTOP+FPK_PTOP+2
+    bcc filepick_ly_tiny
+    bne filepick_ly_cap
+filepick_ly_tiny
+    lda #1                      ; a screen too short to hold a margin
+filepick_ly_cap
+    cmp #41
+    bcc filepick_ly_rows
+    lda #40
+filepick_ly_rows
+    sta fp_rows
     rts
 
 ; A = row, X = colour: fill one row of the panel
@@ -21235,7 +21657,7 @@ filepick_op_setdir
     sta fp_dst
     lda #>fp_curdir
     sta fp_dst+1
-    lda #63
+    lda #FPK_DIRMAX
     jsr filepick_put_str
     lda fp_src                  ; and take the drive there
     sta X16_P0
@@ -21245,6 +21667,20 @@ filepick_op_setdir
     lda X16_P0                  ; dos_chdir wants A/X = name, Y = length
     ldx X16_P1
     jsr dos_chdir
+    bcc filepick_op_dirok
+    ; The drive would not go, and fp_curdir has already been written --
+    ; so the heading would name a directory the drive is not standing
+    ; in, and every path handed back would name a file nobody has. Fall
+    ; back on the root, which is where a caller that named no start
+    ; would have begun anyway.
+    lda #<filepick_root
+    ldx #>filepick_root
+    ldy #1
+    jsr dos_chdir
+    lda #'/'
+    sta fp_curdir
+    stz fp_curdir+1
+filepick_op_dirok
     stz fp_sel
     stz fp_top
     lda #255
@@ -21516,6 +21952,13 @@ filepick_hop17
     lda #<fp_nm                 ; A/X = name, Y = length
     ldx #>fp_nm
     jsr dos_chdir
+    bcc filepick_hop17ok
+    ; The drive refused it and is still where it was, so filepick_descend must
+    ; not move our idea of where that is: it updates fp_curdir whatever
+    ; happened, and the panel then listed one directory while its
+    ; heading and every path it handed back named another.
+    jmp filepick_lp_input
+filepick_hop17ok
     lda #<fp_nm
     sta X16_P0
     lda #>fp_nm
@@ -21564,7 +22007,10 @@ filepick_lp_none
 ; Every one of these ends by re-reading the directory, so the panel is
 ; never showing something the drive no longer has.
 ; =====================================================================
-fp_clip     .fill 64            ; the file 'c' remembered, absolute
+fp_clip     .fill FPK_FULLSZ    ; the file 'c' remembered, absolute -- so
+                                ; it has to be as long as fp_full, or a
+                                ; deep path is remembered short and the
+                                ; paste reads from somewhere else
 fp_clipok   .byte 0
 fp_buf      .fill 256           ; what a copy moves at a time
 fp_elen     .byte 0             ; length of the text being edited
@@ -21808,7 +22254,7 @@ filepick_ed_copy
     sta fp_dst
     lda #>fp_clip
     sta fp_dst+1
-    lda #62
+    lda #FPK_FULLSZ-1
     jsr filepick_put_str
     lda #1
     sta fp_clipok
@@ -21843,9 +22289,20 @@ filepick_pa_gotleaf
     txa
     tay
     ldx #0
+    bra filepick_pa_copy
+    ; A cached name runs to 38 characters and fp_nm holds 40, so the
+    ; ",S,W" the drive needs was written straight through the end of it
+    ; into fp_nent and fp_sel -- and a paste that then failed left the
+    ; panel counting rows that were not there. A name that cannot take
+    ; the suffix is refused instead: truncating it would aim the write
+    ; at some other file entirely.
+filepick_pa_toolong
+    jmp filepick_pa_report
 filepick_pa_copy
     lda fp_clip,y
     beq filepick_pa_suffix
+    cpx #FPK_NMSIZE-5           ; ",S,W" and the terminator still to come
+    bcs filepick_pa_toolong
     sta fp_nm,x
     inx
     iny
@@ -21855,11 +22312,15 @@ filepick_pa_suffix
 filepick_pa_swr
     lda filepick_s_swr,y
     beq filepick_pa_named
+    cpx #FPK_NMSIZE-1           ; the terminator's own place
+    bcs filepick_pa_toolong
     sta fp_nm,x
     inx
     iny
     bne filepick_pa_swr
 filepick_pa_named
+    lda #0                      ; the rest of the panel reads fp_nm as a
+    sta fp_nm,x                 ; string, not as name-plus-length
     stx fp_elen
     ; source: the absolute path, read on logical file 4
     lda #<fp_clip
@@ -21876,12 +22337,14 @@ filepick_pa_gotslen
     sty X16_P2
     lda #4
     sta X16_P3
-    lda #8
+    lda dos_device
     sta X16_P4
-    lda #2
+    lda #2                      ; source reads on drive channel 2
     sta X16_P5
     jsr fio_open_read
-    bcs filepick_pa_failsrc
+    bcc filepick_pa_srcok
+    jmp filepick_pa_failsrc
+filepick_pa_srcok
     ; destination on logical file 5, in whatever directory we are in
     lda #<fp_nm
     sta X16_P0
@@ -21891,10 +22354,12 @@ filepick_pa_gotslen
     sta X16_P2
     lda #5
     sta X16_P3
-    lda #8
+    lda dos_device
     sta X16_P4
-    lda #2
-    sta X16_P5
+    lda #3                      ; ...the destination MUST use a different
+    sta X16_P5                  ; one: IEC demultiplexes by (device, SA),
+                                ; so opening both on 2 made the second
+                                ; OPEN steal the channel being read
     jsr fio_open_write
     bcs filepick_pa_faildst
 filepick_pa_block
@@ -21908,6 +22373,12 @@ filepick_pa_read
     beq filepick_pa_full                ; 256 bytes
     jsr READST
     beq filepick_pa_read
+    ; ST is not a yes/no. Bit 6 is the end of the file and every other
+    ; bit is a fault -- a read error or a drive that stopped answering
+    ; came back here as "that was the last block", and the copy wrote a
+    ; half a file and said it had worked.
+    and #$BF
+    bne filepick_pa_faildst
     sty fp_cnt                  ; short block: the last one
     lda #1
     sta fp_tmp
@@ -21915,6 +22386,20 @@ filepick_pa_read
 filepick_pa_full
     sty fp_cnt                  ; 0 means 256
     stz fp_tmp
+    ; The 256th byte skipped the status check above by branching here, so
+    ; ask now: a file whose length is an exact multiple of 256 ends on a
+    ; full block, and without this the loop went back for another one,
+    ; stored the $0D that CHRIN answers past the end, and gave the copy a
+    ; trailing byte the original never had.
+    jsr READST
+    tax
+    and #$BF                    ; any bit but EOF is a fault
+    bne filepick_pa_faildst
+    txa
+    and #$40
+    beq filepick_pa_write
+    lda #1                      ; EOF came with the last byte of the block
+    sta fp_tmp
 filepick_pa_write
     ldx #5
     jsr CHKOUT
@@ -21925,6 +22410,11 @@ filepick_pa_out
     iny
     cpy fp_cnt
     bne filepick_pa_out
+    jsr READST                  ; the write side answers too, and nobody
+    and #$BF                    ; was asking: a full card took every byte
+    bne filepick_pa_faildst             ; and kept none of them. Bit 6 is masked
+                                ; because it is the READ side's end of
+                                ; file, which is not an error here.
     lda fp_tmp
     beq filepick_pa_block
     ; done
@@ -22093,6 +22583,16 @@ _validate
     lda bmx_hdr+3
     cmp #1
     bne _bad_fmt
+    ; The palette below goes to $1FA00 + palstart*2 and runs for palcount*2
+    ; bytes, and the sprite attributes begin at $1FC00: a header claiming
+    ; 256 entries from index 255 wrote 512 bytes straight through them. A
+    ; palette that does not fit makes the file wrong, not the write, so
+    ; refuse it here rather than clamping it to something it never was.
+    lda bmx_hdr+10              ; entries (0 means 256)
+    dec a  ; the last entry touched is start+count-1
+    clc
+    adc bmx_hdr+11
+    bcs _bad_fmt                ; it must land inside the 256-entry palette
     lda bmx_hdr+14
     beq _fmt_ok
     lda #BMX_ERR_PACKED
@@ -22331,6 +22831,19 @@ _hdr_out
     cpx #16
     bne _hdr_out
 
+    ; CHROUT never says a word about a write that did not happen: an absent
+    ; device, a write-protected card and a full disk all look the same from
+    ; here, so the whole image went out and the file was reported as saved.
+    ; ST is the only witness -- it is asked after the header, after the
+    ; palette and once per row, the same cadence the load side uses, since
+    ; a test per byte would cost more than it buys.
+    jsr READST
+    cmp #0
+    beq _wr_pal
+    jmp _wr_io                  ; _wr_io sits past the row loop: too far for
+                                ; a relative branch from here
+_wr_pal
+
     ; --- palette from the VRAM shadow ----------------------------------
     lda #VERA_CTRL_ADDRSEL
     tsb VERA_CTRL               ; port 1 reads, so CHROUT stays safe
@@ -22360,6 +22873,11 @@ _pal_out
     jsr bmx_dec_cnt
     bra _pal_out
 _pal_wrote
+    jsr READST                  ; a palette is up to 512 bytes: worth one
+    cmp #0                      ; look before spending the pixels too
+    beq _wr_rows
+    jmp _wr_io
+_wr_rows
 
     ; --- pixel rows -----------------------------------------------------
     lda X16_P5
@@ -22394,6 +22912,9 @@ _wpix
     jsr bmx_dec_cnt
     bra _wpix
 _wrow_done
+    jsr READST                  ; the disk can fill up between any two rows
+    cmp #0
+    bne _wr_io
     clc
     lda bmx_cur
     adc bmx_stride
@@ -22415,6 +22936,16 @@ _wdec
 _wdone
     jsr bmx_close_write
     clc
+    rts
+
+; The file is half written, but it still has to be closed: leaving it open
+; would keep logical file 2 and the output channel claimed, and the drive
+; would never flush what did make it out.
+_wr_io
+    jsr bmx_close_write
+    lda #BMX_ERR_IO
+    sta bmx_code
+    sec
     rts
 
 ; ---------------------------------------------------------------------
@@ -22678,6 +23209,12 @@ _fallback
     jsr CHRIN
     sta VERA2_DATA
     jsr bmx_dec_cnt
+    lda bmx_cnt                 ; the count is met, so that byte was always
+    ora bmx_cnt+1               ; going to be the last one: EOF is expected
+    beq _br_ok
+    jsr READST                  ; past the end CHRIN keeps answering $0D,
+    cmp #0                      ; which padded the rest of the request with
+    bne _br_short               ; filler and still reported success
     bra _fallback
 
 ; --- plumbing ---------------------------------------------------------
@@ -22856,6 +23393,12 @@ _fallback
     jsr CHRIN
     sta VERA_DATA0
     jsr bmx_dec_cnt
+    lda bmx_cnt                 ; the count is met, so that byte was always
+    ora bmx_cnt+1               ; going to be the last one: EOF is expected
+    beq _br_ok
+    jsr READST                  ; past the end CHRIN keeps answering $0D,
+    cmp #0                      ; which padded the rest of the row with
+    bne _br_short               ; filler and still reported success
     bra _fallback
 
 bmx_hdr  .fill 16, 0
@@ -24750,11 +25293,13 @@ _negate_b
 ; Add leaves the carry set on overflow past the width; subtract leaves it
 ; clear on borrow (result went below zero) -- the usual ADC/SBC carry.
 ;
-; INTERRUPTS: these run in decimal mode across the operation. The KERNAL's
-; IRQ handler is decimal-safe (it saves and restores the flags and does no
-; decimal-sensitive ADC/SBC), so ordinary use is fine. A CUSTOM interrupt
-; handler that does its own ADC/SBC must `cld` first, or bracket the call
-; in sei/cli -- otherwise it would run those adds in decimal by mistake.
+; INTERRUPTS: these run in decimal mode across the operation, which is
+; safe on the 65C02 this library requires. Taking an interrupt clears D
+; automatically (and RTI restores it from the stacked flags), so a handler
+; -- the KERNAL's or your own -- never inherits decimal mode from an
+; interrupted bcd_* call. No sei/cli bracketing is needed. That guarantee
+; is a 65C02 one: the NMOS 6502 leaves D alone on interrupt entry, so code
+; ported back to one would need the handler to `cld` first.
 ; =====================================================================
 
 ; (zone: file scope in 64tass)
@@ -25475,7 +26020,9 @@ _go
 ;   in:  X16_PTR2 (P4/P5) = address of element A
 ;        X16_PTR3 (P6/P7) = address of element B
 ;   out: carry SET if A must sort AFTER B (A > B), clear otherwise.
-;   May use A/X/Y; must not disturb the srt_* state.
+;   May use A/X/Y and the whole X16_P block -- the engine recomputes the
+;   element addresses after every call -- but must not disturb the srt_*
+;   state, and must not call sort_* itself.
 ; =====================================================================
 
 ; (zone: file scope in 64tass)
@@ -25587,6 +26134,11 @@ sort_inner
     bcc sort_place_jp1
 
     ; arr[j+1] = arr[j]
+    lda srt_j                  ; recompute the SOURCE rather than trusting
+    sta X16_T0                 ; P4/P5 to have survived the comparator: a
+    lda srt_j+1                ; caller's comparator owns the P block
+    sta X16_T1
+    jsr sort_addr2                 ; P4/P5 = &arr[j]
     lda srt_j                  ; T0/T1 = j+1
     clc
     adc #1
@@ -25594,7 +26146,7 @@ sort_inner
     lda srt_j+1
     adc #0
     sta X16_T1
-    jsr sort_addr3                 ; P6/P7 = &arr[j+1]  (dest; P4/P5 still &arr[j])
+    jsr sort_addr3                 ; P6/P7 = &arr[j+1]  (dest)
     jsr sort_copy_elem
 
     ; if j == 0, key belongs at arr[0]
@@ -26646,6 +27198,26 @@ i32_hi     .byte 0
 ; --- cost ------------------------------------------------------------
 ; Every call crosses a ROM bank via jsrfar, which is not free. For hot
 ; per-frame maths prefer util/fixed.asm (8.8) or util/int32.asm.
+;
+; --- DOMAIN ERRORS DO NOT RETURN -------------------------------------
+; These are bindings to BASIC's FP package, and BASIC reports arithmetic
+; errors by jumping to its error handler, which resets the stack and warm
+; starts BASIC -- your program ends with a READY prompt. The jsrfar frame
+; is abandoned, so there is no carry to test and nothing to catch: the
+; call simply never comes back. Verified in the shipped ROM (fdivt's
+; zero-divisor path and ayint's range check both reach BASIC's ERROR).
+;
+; Screen the operand yourself before calling:
+;   f_div, f_rdiv     divisor of 0            -> ?DIVISION BY ZERO
+;   f_to_s16          |FAC| > 32767           -> ?ILLEGAL QUANTITY
+;   f_ln              FAC <= 0                -> ?ILLEGAL QUANTITY
+;   f_sqrt            FAC < 0                 -> ?ILLEGAL QUANTITY
+;   f_pow             negative base, and 0`0  -> ?ILLEGAL QUANTITY
+;   f_add/f_sub/f_mul/f_div/f_exp/f_pow  a result past ~1.7e38
+;                                             -> ?OVERFLOW
+; f_cmp, f_sgn, f_abs, f_int, f_neg and the conversions from integers
+; cannot fail. util/double.asm is the alternative when a wrong answer is
+; better than a dead program: it returns inf/NaN instead of ending the run.
 ; =====================================================================
 
 ; (zone: file scope in 64tass)
@@ -26692,7 +27264,10 @@ f_sgn
 ; ---------------------------------------------------------------------
 ; f_from_u8  -- in: A = 0..255.            FAC = A
 ; f_from_s16 -- in: A = low, X = high.     FAC = the signed value
-; f_to_s16   -- out: A = low, X = high.    Rounds toward zero.
+; f_to_s16   -- out: A = low, X = high.    FLOORS: the ROM's qint
+;               two's-complements a negative FAC and then shifts right,
+;               so -2.5 comes back as -3, not -2. |FAC| > 32767 does not
+;               return at all -- see the header.
 ;
 ; fp_givayf wants the high byte in A and the low byte in Y, the reverse
 ; of this library's usual A = low convention, so swap on the way in.
@@ -27070,7 +27645,8 @@ double_dfr_nz
 ;
 ; value = dac_m * 2`dac_e with dac_m normalised (bit 63 = 1). The
 ; integer part is dac_m >> (-dac_e). For an s32-range value dac_e lies
-; in -63..-33; dac_e >= -32 overflows, dac_e <= -64 truncates to 0.
+; in -63..-33; dac_e >= -32 overflows, dac_e <= -64 truncates to 0. The
+; single exception is -2147483648, which is exact and reports no overflow.
 ; ---------------------------------------------------------------------
 d_to_s32
     lda #<d_ac
@@ -27188,6 +27764,27 @@ double_dto_oneg
     stz X16_P2
     lda #$80
     sta X16_P3
+    ; -2`31 is the one value that lands here and IS representable: it is
+    ; dac_m = 2`63 with shift exactly 32, so it must not be flagged.
+    lda d_cnt+1
+    bne double_dto_onov
+    lda d_cnt
+    cmp #32
+    bne double_dto_onov
+    lda dac_m  
+    ora dac_m+1
+    ora dac_m+2
+    ora dac_m+3
+    ora dac_m+4
+    ora dac_m+5
+    ora dac_m+6
+    bne double_dto_onov
+    lda dac_m+7
+    cmp #$80
+    bne double_dto_onov
+    clc
+    rts
+double_dto_onov
     sec
     rts
 
@@ -27350,7 +27947,14 @@ double_dad_acfin
     cmp #D_INF
     beq double_dad_retbf               ; finite + inf -> dbf
     lda dac_c
-    beq double_dad_retbf               ; 0 + x -> x
+    bne double_dad_afin2
+    lda dbf_c
+    bne double_dad_retbf               ; 0 + x -> x
+    lda dac_s                    ; 0 + 0: round-to-nearest gives -0 only when
+    and dbf_s                    ; BOTH are -0 -- taking the operand's sign
+    sta dac_s                    ; alone made (+0)+(-0) and (+0)-(+0) come
+    jmp double_d_pack                  ; out negative
+double_dad_afin2
     lda dbf_c
     bne double_dad_align
     jmp double_d_pack                  ; x + 0 -> x
@@ -28095,7 +28699,8 @@ double_ddv_nost
 ; A "magic constant" bit-hack picks a guess within ~3% (sqrt(4) and other
 ; powers of four come out exact), then Newton's iteration
 ; x' = (x + v/x)/2 refines it -- six passes reach full binary64. NaN for
-; a negative operand; 0/inf/NaN pass through.
+; a negative operand; inf/NaN pass through; zero -- and a subnormal, which
+; unpacks as one -- gives +/-0.
 ; ---------------------------------------------------------------------
 d_sqrt
     lda #<d_ac
@@ -28104,9 +28709,11 @@ d_sqrt
     sta d_ptr+1
     jsr double_d_unpack
     lda dac_c
+    cmp #D_ZERO                  ; a subnormal also unpacks as zero, and
+    bne double_dsq_ckn                 ; returning without writing d_ac would hand
+    jmp double_d_zero_signed           ; back the operand as its own square root
+double_dsq_ckn
     cmp #D_NAN
-    beq double_dsq_ret
-    cmp #D_ZERO
     beq double_dsq_ret
     lda dac_s
     bmi double_dsq_neg
@@ -28176,6 +28783,9 @@ double_dsq_neg
 ; Range-reduce x = n*ln2 + r (n = trunc(x/ln2), |r| < ln2), sum the
 ; Taylor series e`r = 1 + r + r`2/2! + ..., then scale by 2`n (add n to
 ; the binary exponent). 0->1, +inf->+inf, -inf->+0, NaN->NaN.
+; x > 710 answers +inf and x < -746 answers +0 without reducing: those are
+; the true results (the exact thresholds are 709.783 and -745.134) and n
+; is only a 16-bit count, which such an x would overflow.
 ; ---------------------------------------------------------------------
 d_exp
     lda #<d_ac
@@ -28202,9 +28812,28 @@ double_dex_zero
     sta dac_c
     stz dac_s
     jmp double_d_pack
+double_dex_inf
+    lda #D_INF
+    sta dac_c
+    stz dac_s
+    jmp double_d_pack
 double_dex_ret
     rts
 double_dex_norm
+    ; Settle the out-of-range arguments first: n below is only 16 bits, so
+    ; past |x| ~ 22713 it wraps and the 2`n scaling answers the OPPOSITE
+    ; end of the range (e`23000 came out +0), and past ~1.49e9 d_to_s32
+    ; clamps and the series returns finite garbage.
+    lda #<d_exphi                ; x > 710 -> +inf
+    ldy #>d_exphi
+    jsr d_cmp
+    cmp #1
+    beq double_dex_inf
+    lda #<d_explo                ; x < -746 -> +0
+    ldy #>d_explo
+    jsr d_cmp
+    cmp #$FF
+    beq double_dex_zero
     lda #<d_tv                   ; save x
     ldy #>d_tv
     jsr d_store
@@ -28535,7 +29164,9 @@ double_dpw_one
 ;
 ; Reduce x = n*(pi/2) + r with |r| <= pi/4 (a single subtraction, so a
 ; huge x loses precision), Taylor sin(r)/cos(r), select by n mod 4.
-; NaN/inf -> NaN; sin(0)=0, cos(0)=1.
+; NaN/inf -> NaN; sin(0)=0, cos(0)=1. |x| >= about 3.37e9 is NaN too: the
+; quadrant count overflows an s32 there, so the argument no longer says
+; where in the cycle it lies. d_tan inherits that through sin and cos.
 ; ---------------------------------------------------------------------
 d_sin
     lda #<d_ac
@@ -28555,6 +29186,7 @@ double_dsn_ret
     rts
 double_dsn_go
     jsr double_d_trig_reduce
+    bcs double_dsn_ret                 ; unreducible: d_ac is already NaN
     lda d_scq
     beq double_dsn_q0
     cmp #1
@@ -28591,6 +29223,7 @@ double_dcs_nan
     jmp double_d_pack
 double_dcs_go
     jsr double_d_trig_reduce
+    bcs double_dcs_ret                 ; unreducible: d_ac is already NaN
     lda d_scq
     beq double_dcs_q0
     cmp #1
@@ -28598,6 +29231,8 @@ double_dcs_go
     cmp #2
     beq double_dcs_q2
     jmp double_d_sinr                  ; q3: sin(r)
+double_dcs_ret
+    rts
 double_dcs_q0
     jmp double_d_cosr
 double_dcs_q1
@@ -28917,7 +29552,12 @@ double_d_hyp_exps
     ldy #>d_hypb
     jmp d_store                  ; e^-x
 
-; x (d_ac) -> d_tr = r in [-pi/4, pi/4], d_scq = n mod 4
+; x (d_ac) -> d_tr = r in [-pi/4, pi/4], d_scq = n mod 4, carry clear.
+; Beyond 2`31 quadrants (|x| >= about 3.37e9) the quadrant count no longer
+; fits an s32: d_to_s32 would clamp it, r would come back in the billions
+; and the sin/cos series would answer ~1e169 for a function bounded by 1.
+; Such an x carries no usable phase at all, so d_ac is set to NaN and the
+; carry comes back set for the caller to pass straight on.
 double_d_trig_reduce
     lda #<d_tv
     ldy #>d_tv
@@ -28937,6 +29577,7 @@ double_dtr_neg
     jsr d_sub
 double_dtr_trunc
     jsr d_to_s32                 ; n
+    bcs double_dtr_huge                ; no quadrant to be had
     lda X16_P0
     and #3
     sta d_scq
@@ -28955,7 +29596,15 @@ double_dtr_trunc
     jsr d_sub                    ; r = x - n*(pi/2)
     lda #<d_tr
     ldy #>d_tr
-    jmp d_store
+    jsr d_store
+    clc
+    rts
+double_dtr_huge
+    lda #D_NAN
+    sta dac_c
+    jsr double_d_pack
+    sec
+    rts
 
 ; sin(d_tr) via Taylor: sum = r, term *= -r`2/((2k)(2k+1)), sum += term
 double_d_sinr
@@ -29099,6 +29748,8 @@ double_d_trig_nr2
 ; 10`(exponent - fraction_digits) with repeated *10 / /10. Each step
 ; rounds, so a long mantissa can land a unit-in-the-last-place off -- fine
 ; for a calculator; a correctly-rounded parser is a later refinement.
+; The decimal exponent saturates at three digits, which is already well
+; past the +/-308 that binary64 can hold, so "1e65540" is an infinity.
 ; ---------------------------------------------------------------------
 d_from_str
     sta dstr_ptr
@@ -29191,6 +29842,14 @@ double_dstr_edig
     bcs double_dstr_edone
     sec
     sbc #'0'
+    ; Stop accumulating at 3 digits: 10`999 is already infinity and 10^-999
+    ; already zero, while a 16-bit exponent that keeps going wraps and turns
+    ; "1e65540" into 1e4. (X, not A -- A holds the digit.)
+    ldx dstr_exp+1
+    bne double_dstr_eskip
+    ldx dstr_exp
+    cpx #100
+    bcs double_dstr_eskip
     pha
     ; dstr_exp = dstr_exp*10 + digit
     lda dstr_exp
@@ -29224,6 +29883,7 @@ double_dstr_edig
     lda dstr_exp+1
     adc #0
     sta dstr_exp+1
+double_dstr_eskip
     jsr double_dstr_next
     bra double_dstr_edig
 double_dstr_edone
@@ -29996,7 +30656,9 @@ double_dpk_rounded
     lda d_bias+1
     bmi double_dpk_under               ; biased < 0
     bne double_dpk_maybe               ; >= 256
-    bra double_dpk_asm
+    lda d_bias                   ; biased == 0 encodes a SUBNORMAL, not a
+    beq double_dpk_under               ; normal: packing it here would strip the
+    bra double_dpk_asm                 ; implicit bit and emit a value ~1/3 low
 double_dpk_maybe
     lda d_bias+1
     cmp #>2047
@@ -30150,6 +30812,12 @@ d_sqi    .byte 0
 
 d_ln2    .byte $EF,$39,$FA,$FE,$42,$2E,$E6,$3F   ; ln 2  = 0.6931471805599453
 d_log2e  .byte $FE,$82,$2B,$65,$47,$15,$F7,$3F   ; 1/ln2 = 1.4426950408889634
+d_exphi  .byte $00,$00,$00,$00,$00,$30,$86,$40   ; 710.0  (e`x overflows past
+                                                 ; 709.783, so anything above
+                                                 ; this is +inf)
+d_explo  .byte $00,$00,$00,$00,$00,$50,$87,$C0   ; -746.0 (e`x underflows below
+                                                 ; -745.134, so anything under
+                                                 ; this is +0)
 d_1p5    .byte $00,$00,$00,$00,$00,$00,$F8,$3F   ; 1.5
 d_pihalf .byte $18,$2D,$44,$54,$FB,$21,$F9,$3F   ; pi/2 = 1.5707963267948966
 d_pi6    .byte $66,$73,$2D,$38,$52,$C1,$E0,$3F   ; pi/6 = 0.5235987755982988
@@ -30306,14 +30974,29 @@ str_append
     bcc _nc
     inc X16_T1
 _nc
+    ; Measure the suffix BEFORE copying. Appending a string to ITSELF
+    ; (doubling it) overwrites the suffix's own terminator with the first
+    ; byte copied, so a copy-until-NUL loop never sees the end: it ran
+    ; until Y wrapped, spraying 256 bytes past the buffer.
+    ldy #0
+_meas
+    lda (X16_P0),y
+    beq _gotlen
+    iny
+    bne _meas
+_gotlen
+    sty X16_T3                  ; suffix length
     ldy #0
 _loop
+    cpy X16_T3
+    beq _term
     lda (X16_P0),y              ; copy the suffix in
     sta (X16_T0),y
-    beq _done
     iny
     bne _loop
-_done
+_term
+    lda #0
+    sta (X16_T0),y
     tya                         ; result length = target + suffix
     clc
     adc X16_T2
@@ -30323,8 +31006,11 @@ _done
 ; str_nappend -- append, but never let the target exceed maxlength.
 ;   in:  A = target low, X = target high, X16_P0/P1 = suffix,
 ;        Y = maxlength
-;   out: A = length of the resulting string (unchanged if it would
-;        overflow the cap)
+;   out: A = length of the resulting string
+;
+; The suffix is appended as far as it fits and the result is terminated
+; at the cap -- a partial append, like str_ncopy, NOT all-or-nothing. A
+; target already at or past the cap is left untouched.
 ; ---------------------------------------------------------------------
 str_nappend
     sty X16_T3                  ; maxlength
@@ -30483,13 +31169,40 @@ _yes
     rts
 
 ; ---------------------------------------------------------------------
-; str_islower -- carry set if A is 'a'..'z' (97-122). Same either encoding.
+; str_islower -- PETSCII: the lower-case range, 65-90.
+;
+; PETSCII puts lower case where ASCII puts upper: str_upperchar folds
+; 65-90 UP to 97-122, and str_isupper answers for 97-122 / 193-218. This
+; used to test 97-122 -- the same set as str_isupper, so a character
+; could be both, and no PETSCII lower-case letter answered yes.
 ; ---------------------------------------------------------------------
 str_islower
+    cmp #65
+    bcc _no
+    cmp #90+1
+    bcs _no
+    sec
+    rts
+_no
+    clc
+    rts
+
+; ---------------------------------------------------------------------
+; str_islower_iso -- ISO: 'a'..'z' (97-122) and the accented smalls
+;   ($E0-$FE, less $F7 division sign) -- the set str_upperchar_iso folds
+; ---------------------------------------------------------------------
+str_islower_iso
     cmp #'a'
     bcc _no
     cmp #'z'+1
+    bcc _yes
+    cmp #$E0
+    bcc _no
+    cmp #$FE+1
     bcs _no
+    cmp #$F7
+    beq _no
+_yes
     sec
     rts
 _no
@@ -30516,13 +31229,21 @@ _yes
     rts
 
 ; ---------------------------------------------------------------------
-; str_isupper_iso -- ISO: 'A'..'Z' (65-90)
+; str_isupper_iso -- ISO: 'A'..'Z' (65-90) and the accented capitals
+;   ($C0-$DE, less $D7 multiplication sign)
 ; ---------------------------------------------------------------------
 str_isupper_iso
     cmp #'A'
     bcc _no
     cmp #'Z'+1
+    bcc _yes
+    cmp #$C0
+    bcc _no
+    cmp #$DE+1
     bcs _no
+    cmp #$D7
+    beq _no
+_yes
     sec
     rts
 _no
@@ -30531,6 +31252,7 @@ _no
 
 ; ---------------------------------------------------------------------
 ; str_isletter -- PETSCII: a lower- or upper-case letter
+;   (65-90 lower, plus 97-122 and 193-218 upper)
 ; ---------------------------------------------------------------------
 str_isletter
     jsr str_islower
@@ -30543,7 +31265,7 @@ _yes
 ; str_isletter_iso -- ISO: a lower- or upper-case letter
 ; ---------------------------------------------------------------------
 str_isletter_iso
-    jsr str_islower
+    jsr str_islower_iso
     bcs _yes
     jmp str_isupper_iso
 _yes
@@ -30637,13 +31359,24 @@ _yes
 ; str_lowerchar / str_lowerchar_iso -- fold one character to lower case
 ; str_upperchar / str_upperchar_iso -- ...to upper case.  in/out: A
 ; ---------------------------------------------------------------------
+; PETSCII upper case lives in TWO ranges, 97-122 and 193-218, and both
+; fold down to 65-90. This used to begin with an unconditional `and #$7f`,
+; which folded $80 to $00: str_lower then wrote a terminator into the
+; middle of the string, and every code $80-$FF (colour controls,
+; shift-space) was silently rewritten.
 str_lowerchar
-    and #$7f
     cmp #97
+    bcc _done                   ; below 97: already lower, or not a letter
+    cmp #122+1
+    bcs _high
+    and #%11011111              ; 97-122 -> 65-90
+    rts
+_high
+    cmp #193
     bcc _done
-    cmp #123
+    cmp #218+1
     bcs _done
-    and #%11011111
+    and #$7f                    ; 193-218 -> 65-90
 _done
     rts
 
@@ -30651,7 +31384,16 @@ str_lowerchar_iso
     cmp #65
     bcc _done
     cmp #91
+    bcs _high
+    ora #$20                    ; 'A'-'Z' -> 'a'-'z'
+    rts
+_high
+    cmp #$C0                    ; the ISO-8859-15 accented capitals,
+    bcc _done                   ; $C0-$DE -> $E0-$FE ...
+    cmp #$DE+1
     bcs _done
+    cmp #$D7                    ; ...except multiplication sign, no letter
+    beq _done
     ora #$20
 _done
     rts
@@ -30669,7 +31411,16 @@ str_upperchar_iso
     cmp #97
     bcc _done
     cmp #123
+    bcs _high
+    and #%11011111              ; 'a'-'z' -> 'A'-'Z'
+    rts
+_high
+    cmp #$E0                    ; the accented smalls, $E0-$FE -> $C0-$DE...
+    bcc _done
+    cmp #$FE+1
     bcs _done
+    cmp #$F7                    ; ...except division sign, no letter
+    beq _done
     and #%11011111
 _done
     rts
@@ -30935,14 +31686,26 @@ _found
 ;
 ; In the pattern, '?' matches any single character and '*' matches any
 ; run of characters including none. Case-sensitive. Both string and
-; pattern are NUL-terminated and at most 255 long. Each '*' costs 4 bytes
-; of CPU stack. Algorithm from 6502.org/source/strings/patmatch.htm.
+; pattern are NUL-terminated and at most 255 long.
 ;
-; The whole matcher is written with zone-local labels (no _cheap) because
-; it self-modifies (the pattern address is patched into two loads) and
-; recurses -- an SMC target mid-routine would otherwise split a cheap
-; scope under some assemblers.
+; This used to recurse once per '*', costing 4 bytes of CPU stack each --
+; a legal 255-character pattern with 64 of them overflowed the stack --
+; and it re-tried the tail from scratch after every failed position, so a
+; pattern like "a*a*a*a*b" against a long run of 'a's took exponential
+; time. The walk below keeps only the last '*' and the point it had
+; swallowed up to, which is all the backtracking a single-wildcard
+; grammar needs: no recursion, no stack growth, and a bounded number of
+; retries per character.
+;
+; Zone-local labels throughout (no _cheap) because the pattern address is
+; self-modified into the loads, and an SMC target mid-routine would split
+; a cheap scope under some assemblers.
 ; ---------------------------------------------------------------------
+find_pm_star
+    .byte 0               ; pattern index of the live '*', $FF none
+find_pm_mark
+    .byte 0               ; how much of the string it has swallowed
+
 str_pattern_match
     sta X16_T0                  ; strptr = the string
     stx X16_T1
@@ -30952,55 +31715,54 @@ str_pattern_match
     lda X16_P1
     sta find_pm_pat1+2
     sta find_pm_pat2+2
-    jsr find_pm_match               ; carry = the match result
-    lda #0
-    bcc _done                   ; keep the carry; set A = 1 on a match
-    lda #1
-_done
-    rts
-
-find_pm_match
+    lda #$ff
+    sta find_pm_star                ; no '*' met yet
+    stz find_pm_mark
     ldx #0                      ; X indexes the pattern
-    ldy #$ff                    ; Y indexes the string (iny brings it to 0)
+    ldy #0                      ; Y indexes the string
 find_pm_next
+    lda (X16_T0),y
+    beq find_pm_tail                ; string spent: only '*' may remain
 find_pm_pat1
     lda $ffff,x                 ; pattern[X]  (address patched above)
     cmp #'*'
-    beq find_pm_star
-    iny
+    beq find_pm_seen
     cmp #'?'
-    bne find_pm_reg
-    lda (X16_T0),y              ; '?' matches anything but the terminator
-    beq find_pm_fail
-find_pm_reg
-    cmp (X16_T0),y
-    bne find_pm_fail
+    beq find_pm_step                ; '?' takes any character but the NUL,
+    cmp (X16_T0),y              ; and the NUL was ruled out above
+    bne find_pm_back
+find_pm_step
     inx
-    cmp #0                      ; matched the NUL: end of both
-    bne find_pm_next
-    rts                         ; carry set = match
-find_pm_star
-    inx
-find_pm_pat2
-    cmp $ffff,x                 ; a run of '*' is the same as one
-    beq find_pm_star
-find_pm_stloop
-    txa
-    pha
-    tya
-    pha
-    jsr find_pm_next                ; try to match the rest here
-    pla
-    tay
-    pla
-    tax
-    bcs find_pm_done                ; it matched: keep the carry set
     iny
-    lda (X16_T0),y              ; grow what '*' swallows, unless at the end
-    bne find_pm_stloop
-find_pm_fail
+    bra find_pm_next
+find_pm_seen
+    stx find_pm_star                ; remember where to resume the pattern...
+    inx
+    sty find_pm_mark                ; ...and what the '*' has taken so far
+    bra find_pm_next
+find_pm_back
+    ldx find_pm_star
+    cpx #$ff
+    beq find_pm_no                  ; no '*' to give ground: it cannot match
+    inx                         ; resume just past that '*'...
+    inc find_pm_mark                ; ...letting it swallow one more character
+    ldy find_pm_mark
+    bra find_pm_next
+find_pm_tail
+find_pm_pat2
+    lda $ffff,x
+    beq find_pm_yes
+    cmp #'*'
+    bne find_pm_no
+    inx
+    bra find_pm_tail
+find_pm_no
+    lda #0
     clc
-find_pm_done
+    rts
+find_pm_yes
+    lda #1
+    sec
     rts
 
 ; (end zone)
@@ -31089,6 +31851,11 @@ _done
 ; str_slice -- copy `length` characters starting at `start`.
 ;   in: A = source low, X = source high, X16_P0/P1 = target,
 ;       X16_P2 = start, Y = length
+;
+; Target and source must not overlap unless they are the same address
+; with start = 0: the copy runs upwards, so slicing a string onto itself
+; from any later offset reads cells it has already overwritten. (str_left
+; is safe in place; str_right is not.)
 ; ---------------------------------------------------------------------
 str_slice
     sta X16_T0
@@ -31194,12 +31961,17 @@ _blank
 ; str_trim -- drop whitespace from both ends, in place.
 ;   in: A = low, X = high.  out: Y = the new length
 ; ---------------------------------------------------------------------
+; The pointer is kept here rather than in the T scratch: T bytes never
+; survive a call to another library routine, and str_rtrim is one.
+slice_trim_ptr
+    .word 0
+
 str_trim
-    sta X16_T6
-    stx X16_T7
+    sta slice_trim_ptr
+    stx slice_trim_ptr+1
     jsr str_rtrim
-    lda X16_T6
-    ldx X16_T7
+    lda slice_trim_ptr
+    ldx slice_trim_ptr+1
     jmp str_ltrim
 
 ; whitespace test: A = char -> carry set if whitespace. Preserves A, X, Y.

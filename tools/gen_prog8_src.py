@@ -185,8 +185,16 @@ def gen_consts(sym):
 # names a symbol defined inside the library's own block, which the
 # generated inline asm cannot see -- fs_save, the one routine that passes
 # an argument in T, would not assemble at all.
+#
+# const_zp.asm also names the 16-bit aliases over those same bytes --
+# X16_PTR0..3 = P0/P2/P4/P6, X16_TPTR0..3 = T0/T2/T4/T6 -- and the macros
+# that take a pointer (pal_load, bit_test, bit_put, the 4h/8h palette
+# loaders) spell it that way. Without these, six wrappers named a symbol
+# nothing outside x16src defines and no program calling them assembled.
 PBLOCK = {f"X16_P{k}": 0x22 + k for k in range(8)}
 PBLOCK.update({f"X16_T{k}": 0x2A + k for k in range(8)})
+PBLOCK.update({f"X16_PTR{k}":  0x22 + 2 * k for k in range(4)})
+PBLOCK.update({f"X16_TPTR{k}": 0x2A + 2 * k for k in range(4)})
 RET = {
     "A":  ("ubyte", "ret8",  ["sta p8v_ret8"]),
     "X":  ("ubyte", "ret8",  ["stx p8v_ret8"]),
@@ -209,6 +217,28 @@ RET = {
 # ---------------------------------------------------------------------
 ROUTINE_DOC = {}                     # routine -> its header block, as a list
 ROUTINE_NAMES = set()
+
+# The "a person decides" half of that rule, decided here rather than in the
+# library, so a resync cannot quietly take a routine's answer away again.
+# Each of these lost its return type to a header the library reworded:
+#
+#   stack_popw, ring_getw   gained a documented carry ("fewer than two bytes
+#     were stored, nothing was popped"), which made the header say both a
+#     carry and A/X. The value is what a caller wants -- the underflow is
+#     guarded by stack_isempty / ring_isempty, as the library instructs --
+#     so these stay `-> uword`, which is what they returned before.
+#
+#   str_islower   was rewritten to explain the PETSCII range and lost its
+#     "out:" line altogether. It is a predicate: carry IS the answer, and
+#     without it the wrapper cannot report anything at all.
+#   str_islower_iso   is new, and its header explains the range instead of
+#     spelling an "out:" line, exactly like its PETSCII sibling.
+RETURN_OVERRIDE = {
+    "stack_popw":      "AX",
+    "ring_getw":       "AX",
+    "str_islower":     "Pc",
+    "str_islower_iso": "Pc",
+}
 
 def collect_headers(base):
     for root, _dirs, files in os.walk(base):
@@ -348,9 +378,26 @@ def rreg(tok):
 
 class Macro: __slots__ = ("name", "args", "body", "doc")
 
+# A wrapper exists where sugar.asm has a macro, so a routine the library
+# adds without one is unreachable from Prog8. These are written in the
+# library's own macro syntax and parsed with the rest, so nothing about
+# the ABI is second-guessed here -- only the omission is made good.
+#
+#   str_islower_iso   arrived with the PETSCII/ISO split of str_islower.
+#     Every other member of the ctype family -- isupper_iso, isletter_iso,
+#     isprint_iso -- has a macro; this one was missed.
+EXTRA_SUGAR = """
+; ISO: 'a'..'z' (97-122) and the accented smalls
+!macro xm_str_islower_iso .ch {
+    lda #(.ch)
+    jsr str_islower_iso
+}
+"""
+
 def parse_sugar():
     macros, doc = [], []
     lines = open(SUGAR, encoding="utf-8").readlines()
+    lines += EXTRA_SUGAR.splitlines(keepends=True)
     i, n = 0, len(lines)
     mhead = re.compile(r"^\s*!macro\s+xm_(\w+)\s*(.*?)\s*\{\s*$")
     while i < n:
@@ -390,13 +437,17 @@ def translate(mc):
         if m: target = m.group(1)
     if not target:
         return None
-    is16 = {a: False for a in mc.args}; used = set()
+    # `^` is the third byte -- a VRAM address is 17-bit, so a macro that
+    # takes one whole (xm_fx_fill) writes #<, #> AND #^ of the same
+    # argument. Prog8's `long` is the only parameter type with a byte 2.
+    is16 = {a: False for a in mc.args}; is24 = dict(is16); used = set()
     for b in body:
         for a in mc.args:
-            if re.search(r"#[<>]\(\." + re.escape(a) + r"\)", b): is16[a] = True; used.add(a)
+            if re.search(r"#\^\(\." + re.escape(a) + r"\)", b): is24[a] = True; used.add(a)
+            elif re.search(r"#[<>]\(\." + re.escape(a) + r"\)", b): is16[a] = True; used.add(a)
             elif re.search(r"#\(\." + re.escape(a) + r"\)", b): used.add(a)
     for a in mc.args:                    # skip macros doing arithmetic on args
-        probe = re.sub(r"#[<>]?\(\." + re.escape(a) + r"\)", "", "\n".join(body))
+        probe = re.sub(r"#[<>^]?\(\." + re.escape(a) + r"\)", "", "\n".join(body))
         if re.search(r"\." + re.escape(a) + r"\b", probe):
             return None
     asm = []
@@ -405,6 +456,7 @@ def translate(mc):
         for a in mc.args:
             line = re.sub(r"#<\(\." + re.escape(a) + r"\)", f"p8v_{a}", line)
             line = re.sub(r"#>\(\." + re.escape(a) + r"\)", f"p8v_{a}+1", line)
+            line = re.sub(r"#\^\(\." + re.escape(a) + r"\)", f"p8v_{a}+2", line)
             line = re.sub(r"#\(\." + re.escape(a) + r"\)",  f"p8v_{a}", line)
         for pn, pa in PBLOCK.items():
             line = re.sub(r"\b" + pn + r"\b", f"${pa:02X}", line)
@@ -417,7 +469,8 @@ def translate(mc):
                       if (m.group(0) in LIBSYMS and m.group(0) not in MNEMONICS) else m.group(0),
                       line)
         asm.append(line)
-    params = [(a, "uword" if is16[a] else "ubyte") for a in mc.args if a in used]
+    params = [(a, "long" if is24[a] else "uword" if is16[a] else "ubyte")
+              for a in mc.args if a in used]
     ret = None
     dm = re.search(r"->\s*(.*)", " ".join(mc.doc))
     if dm:                                   # an explicit note in sugar.asm wins
@@ -427,7 +480,7 @@ def translate(mc):
         elif re.search(r"carry|@ ?Pc", r): ret = "Pc"
         elif re.search(r"\bA\b", r): ret = "A"
     if ret is None:                          # otherwise ask the routine's header
-        ret = doc_return(target)
+        ret = RETURN_OVERRIDE.get(target) or doc_return(target)
     return params, asm, ret, target
 
 def gen_lib(macros, routine_gate):
@@ -474,7 +527,16 @@ def gen_lib(macros, routine_gate):
         rtype = capvar = None; capture = []
         if ret: rtype, capvar, capture = RET[ret]
         rsig = f" -> {rtype}" if rtype else ""
-        if mc.doc: out.append("    ; " + " ".join(mc.doc)[:110])
+        # wrapped, not truncated: sugar.asm's notes are now several lines of
+        # prose each, and one 110-column slice of that ends mid-sentence.
+        if mc.doc:
+            line = ""
+            for word in " ".join(mc.doc).split():
+                if line and len(line) + 1 + len(word) > 100:
+                    out.append("    ; " + line); line = word
+                else:
+                    line = f"{line} {word}".strip()
+            if line: out.append("    ; " + line)
         out.append(f"    sub {mc.name}({', '.join(pdecl)}){rsig} {{")
         out.append("        %asm {{")
         if gate:                          # far-call trampoline when banked

@@ -101,11 +101,13 @@ x16c {
     const ubyte FPK_AEDIT = $76
     const ubyte FPK_ALT = $2
     const ubyte FPK_DBLCLK = $1E
+    const ubyte FPK_DIRMAX = $3F
     const ubyte FPK_ENAME = $1
     const ubyte FPK_ESIZE = $28
     const ubyte FPK_ETYPE = $0
     const ubyte FPK_HERE = $3
     const ubyte FPK_MAXENT = $40
+    const ubyte FPK_NMSIZE = $28
     const ubyte FPK_NOBANK = $FF
     const ubyte FPK_NONE = $0
     const ubyte FPK_PICK = $1

@@ -348,7 +348,7 @@ it, so read it from the registers/flags/P-block afterwards. Angles are the
 |---|---|
 | `cx.fx_off()` | disable FX (leaves DCSEL/ADDRSEL = 0) |
 | `cx.fx_mult(a, b)` | signed 16×16 (→ P4..P7 = product) |
-| `cx.fx_fill(val, count)` | fast fill from the current address |
+| `cx.fx_fill(val, addr, count)` | fast fill of VRAM at a 4-byte-aligned address |
 | `cx.fx_clear(addrlo, addrmid, addrhi, count)` | zero a VRAM region |
 | `cx.fx_transp_on()` / `cx.fx_transp_off()` | transparent VRAM writes |
 | `cx.fx_line(x0, y0, x1, y1, col)` | hardware-assisted line |

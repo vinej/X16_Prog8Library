@@ -1728,6 +1728,11 @@ default. Baud rates are `SER_BAUD_*` constants (`SER_BAUD_300` …
 Fingerprints each candidate by registers a bare bus cannot fake, with
 interrupts held off across the probe.
 
+It **writes** to every slot it examines, before it knows what is there. The
+VERA_2 hi-res card at `$9F60-$9F6F` is recognised by its signature and
+skipped, but any other card in `$9F60-$9FF8` is written to blind - so if you
+already know the base, call `ser_init` with it instead of scanning.
+
 ### `ser_init` — program a UART for 8N1
 
 - **In:** `A` = base low, `X` = base high; `X16_P0/P1` = baud divisor
@@ -1978,7 +1983,10 @@ before pushing or popping when capacity matters.
 - `stack_push` - in: `A = byte`.
 - `stack_pushw` - in: `A = low`, `X = high`.
 - `stack_pop` - out: `A = byte`.
-- `stack_popw` - out: `A = low`, `X = high`.
+- `stack_popw` - out: `A = low`, `X = high`, carry clear. Carry **set**
+  means fewer than two bytes were stored and nothing was popped -
+  `stack_isempty` cannot say that, since one byte left is not empty but is
+  not a word either.
 - `stack_size` / `stack_free` - out: `A/X = bytes used/free`.
 - `stack_isempty` / `stack_isfull` - carry set if empty/full.
 
@@ -1991,7 +1999,9 @@ one slot remains unused so full and empty stay distinct.
 - `ring_put` - in: `A = byte`.
 - `ring_putw` - in: `A = low`, `X = high`.
 - `ring_get` - out: `A = byte`.
-- `ring_getw` - out: `A = low`, `X = high`.
+- `ring_getw` - out: `A = low`, `X = high`, carry clear. Carry **set**
+  means fewer than two bytes were queued and nothing was dequeued, for the
+  reason given for `stack_popw` above.
 - `ring_size` / `ring_free` - out: `A/X = bytes queued/free`.
 - `ring_isempty` / `ring_isfull` - carry set if empty/full.
 
@@ -2949,11 +2959,18 @@ most 255 characters. Number ↔ string conversion is *not* here — it lives in
 ### `X16_USE_STRING_CTYPE` — character classification
 
 Each takes the character in `A` and answers in the carry (set = yes):
-`str_isdigit`, `str_isxdigit`, `str_islower`, `str_isspace` are the same in
-either encoding; `str_isupper`, `str_isletter`, `str_isprint` classify for
-PETSCII, and `str_isupper_iso` / `str_isletter_iso` / `str_isprint_iso` for
-ISO. (In PETSCII the letter codes overlap, so `str_isupper` accepts both
-97–122 and 193–218, and `str_isupper('A')` is *false* — 65 is an ISO code.)
+`str_isdigit`, `str_isxdigit` and `str_isspace` are the same in either
+encoding. The case-sensitive ones come in pairs — `str_islower`,
+`str_isupper`, `str_isletter`, `str_isprint` classify for PETSCII, and
+`str_islower_iso` / `str_isupper_iso` / `str_isletter_iso` /
+`str_isprint_iso` for ISO.
+
+PETSCII puts the cases where ASCII does not: **lower case is 65–90**, and
+upper case is 97–122 *and* 193–218. So `str_islower(65)` is true while
+`str_isupper(65)` is false, and both are the other way round for 97. The
+ISO forms read the ranges the familiar way, and also cover the accented
+letters (`$C0`–`$DE` upper, `$E0`–`$FE` lower, less the `$D7` and `$F7`
+sign characters).
 
 ### `X16_USE_STRING_CASE` — case folding
 
@@ -2973,7 +2990,9 @@ matches the encoding your text is in.
 - `str_contains` — carry set if the character occurs.
 - `str_pattern_match` — **in:** `A`/`X` = string, `X16_P0/P1` = pattern. `?`
   matches any one character, `*` any run (including none); case-sensitive.
-  **out:** carry set (and `A` = 1) on a match.
+  **out:** carry set (and `A` = 1) on a match. It uses no CPU stack and no
+  recursion, so any number of `*` is safe and a pattern like `a*a*a*a*b`
+  cannot make it backtrack exponentially.
 
 ```prog8
 %asm {{

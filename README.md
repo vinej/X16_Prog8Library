@@ -7,7 +7,8 @@ A [Prog8](https://prog8.readthedocs.io/) wrapper for the
 [X16_Library](../x16_library) — call the library's hand-written 6502 routines
 from Prog8 with typed subroutines, on the Commander X16.
 
-Generated from **X16_Library v0.18.7**.
+Generated from **X16_Library** at commit `6992b4d` (2026-07-30). The library
+carries no version number of its own, so the commit is what identifies a sync.
 
 Every library module is available, and your PRG contains only the ones you
 actually call.
@@ -142,7 +143,7 @@ bank 23, "string"
 ```powershell
 .\build.ps1 examples\twobank\twobank.p8 -BankFile examples\twobank\twobank.banks
 ```
-That yields a **503-byte** main PRG plus `build\BANK22.BIN` (graphics) and
+That yields a **509-byte** main PRG plus `build\BANK22.BIN` (graphics) and
 `build\BANK23.BIN` (strings) — the whole library footprint is out of low RAM.
 
 **Inline single bank** (shorthand for one line):
@@ -273,23 +274,28 @@ it — banking relocates library modules only.
 
 ```
 # examples\kalk\kalk.banks
-bank 20, "filepick,dir"
+bank 20, "filepick,dos,mouse"
 ```
+
+`dir` is deliberately absent: the library forces `X16_USE_DIR` on wherever
+`X16_USE_FILEPICK` is on, so it lands in the bank image anyway, and naming a
+module kalk never calls itself only earns a warning.
 
 kalk is the program that proves the point. As a Prog8 module the browser put it
 **3,927 bytes over** the low-RAM ceiling and banking every library module it
 uses freed only 1,745 — those modules are thin KERNAL bindings, there is not
-4 KB of them to move. As a library module the browser costs kalk **434 bytes**
-of low RAM (the far-call wrappers) with 4,897 bytes living in bank 20.
+4 KB of them to move. As a library module the browser costs kalk a handful of
+far-call wrappers in low RAM, with **6,396 bytes** living in bank 20.
 
 Every program here uses the library one now — the desktop, imgview and kalk —
 so there is a single browser, in a single language, and `x16lib/filepick.p8` is
 gone. Only kalk banks it; the other two have the room and keep it in low RAM.
 
-The result codes are `FPK_NONE` / `FPK_PICK` / `FPK_ALT` (0/1/2). They are not
-in `x16lib_const`, which is generated from the fixed-size distribution blob —
-and that blob is an everything-build against a hard `$9EFF` ceiling, which a
-3 KB browser does not fit into. Declare the three you need, as the examples do.
+The result codes are `x16c.FPK_NONE` / `FPK_PICK` / `FPK_ALT` (0/1/2), plus
+`FPK_HERE` for "this folder". They live in `x16lib_const` like every other
+constant: the generator reads the embedded source as well as the distribution
+blob, and the blob — an everything-build against a hard `$9EFF` ceiling — has no
+room for a 3 KB browser, so its symbol list alone would not have them.
 
 ## `launcharg` — telling a program which file to open
 
@@ -348,12 +354,12 @@ cx.shape_frrect(40, 40, 200, 110, 28, 1)
 
 ## Coverage
 
-The wrapper exposes **681 routines** across every X16_Library module — VERA,
+The wrapper exposes **707 routines** across every X16_Library module — VERA,
 screen, palette, sprites, tiles, all six bitmap engines, shapes (circle, disc,
 poly, rrect, arc, pie, bezier), graph/framebuffer/console, PSG/YM/PCM/ADPCM and
 the ROM-audio API, serial/I2C/SPI/ZiModem, keyboard/mouse, clock, banking,
 file/DOS/IEC, math, strings, BCD, the 8 KB LIFO stack and FIFO ring, character
-classification, 16/32-bit integers, fixed/float/double, and more — plus **433
+classification, 16/32-bit integers, fixed/float/double, and more — plus **550
 constants**. Only the modules you use are linked.
 
 A wrapper exists for a routine when the library gives it an `xm_` "friendly
@@ -363,15 +369,27 @@ argument**: they assume a compile-time constant and cannot be driven with a
 runtime value, so no wrapper is generated. Call those through inline asm — or
 better, ask for a macro that takes the argument pre-split, which is how
 `sprite_image_at` came to exist alongside the constant-only `sprite_image`.
+A routine the library adds and forgets to give a macro is unreachable the same
+way; where that has happened (`str_islower_iso`, whose whole ctype family has
+one) the generator's `EXTRA_SUGAR` supplies the missing macro in the library's
+own syntax, so the ABI is still read, never guessed.
 **Return values** (`-> ubyte` / `-> uword` / `-> bool`) are read from each
 routine's `out:` header in the library: `A` or `X` or `Y` becomes a `ubyte`,
-`A = low, X = high` a `uword`, and a documented carry a `bool`. **178** of the
+`A = low, X = high` a `uword`, and a documented carry a `bool`. **193** of the
 wrappers carry one. The derivation refuses to guess — a routine that documents
 both a carry and a register (`gfx8h_read`: "carry clear, A = colour; carry set
 if off screen") gets no return type rather than a plausible-looking wrong one,
 because a wrapper with the wrong type is a bug in every program that trusts it.
 For those, add an explicit `; -> ...` note above the macro in `sugar.asm`, which
-always wins, or read the register with a two-line asm shim.
+always wins, or read the register with a two-line asm shim. Where the answer has
+already been decided here — `stack_popw` / `ring_getw` give back the word and
+leave the underflow to `*_isempty`, `str_islower` is its carry — it is written
+down in `RETURN_OVERRIDE` in the generator, so a resync cannot silently take it
+away when the library rewords a header.
+
+**Arguments** are `ubyte` or `uword` by which halves of them the macro stores —
+except a whole 17-bit VRAM address, written `<`, `>` and `^`, which arrives as
+Prog8's `long` (`cx.fx_fill($20, $10000, 32)`).
 
 ## Regenerating
 
@@ -386,6 +404,37 @@ always wins, or read the register with a two-line asm shim.
 ```powershell
 python tools\gen_prog8_src.py [path\to\x16_library]   # default: c:\quartus\projects\x16_library
 ```
+
+### Testing a regeneration
+
+The examples call maybe a tenth of the wrapper, so a broken wrapper normally
+surfaces in somebody's program rather than here. `tools\smoke_wrappers.py`
+builds, for every `X16_USE_*` gate, a program that calls **every** wrapper in
+it — arguments all zero, nothing is run, it is an assembly test — through
+`build.ps1`, gate scan and all:
+
+```powershell
+python tools\smoke_wrappers.py                 # all 89 gates, ~5 minutes
+python tools\smoke_wrappers.py X16_USE_STACK   # one gate
+```
+
+It exits with the number of gates that failed and prints each assembler error.
+Two are known to fail today, both in the library's 64tass port rather than in
+anything generated here (see *Known upstream gaps* below).
+
+## Known upstream gaps
+
+The 64tass port carries two constructs 64tass cannot assemble. They only bite
+when the module is actually gated on, which is why the library's own test
+targets pass:
+
+| Where | What |
+|---|---|
+| `src_64tass/gfx/bitmap4h.asm:281` | `++  lda g4h_n` — ACME's second-level anonymous label. 64tass accepts `+` as a *definition* and `++` only as a *reference* ("second following `+`"), so the definition must be a plain `+`. Breaks any build with `X16_USE_BITMAP4H`. |
+| `src_64tass/video/vdc.asm:239` | `_vdc_store_active_t` is a shared tail three sibling routines `jmp` to. In ACME a leading `_` means nothing; in 64tass it makes the label *cheap-local* to the routine above it, so the earlier jumps cannot see it. Breaks any build with `X16_USE_VERA_DC`. |
+
+Until the library fixes them, `cx.gfx4h_*` and `cx.vdc_set_active*` /
+`cx.vdc_fullscreen` cannot be linked.
 
 ## Tutorial
 

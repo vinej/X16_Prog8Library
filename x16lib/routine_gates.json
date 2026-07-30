@@ -613,6 +613,7 @@
 "str_isletter": "X16_USE_STRING_CTYPE",
 "str_isletter_iso": "X16_USE_STRING_CTYPE",
 "str_islower": "X16_USE_STRING_CTYPE",
+"str_islower_iso": "X16_USE_STRING_CTYPE",
 "str_isprint": "X16_USE_STRING_CTYPE",
 "str_isprint_iso": "X16_USE_STRING_CTYPE",
 "str_isspace": "X16_USE_STRING_CTYPE",

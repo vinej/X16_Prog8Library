@@ -23,7 +23,36 @@ cx {
         %asminclude "x16lib_bankload.inc"
     }
 
-    ; ACME x16lib :: core/sugar.asm -- optional friendly call macros (the "xm_" SDK) A thin, READ-ONLY convenience l
+    ; ACME x16lib :: core/sugar.asm -- optional friendly call macros (the "xm_" SDK) A thin, READ-ONLY
+    ; convenience layer over the whole library: one macro per public routine, named xm_<routine>, that
+    ; loads the argument block and calls it. So a program reads +xm_shape_frrect 40, 40, 200, 110, 28,
+    ; FILL +xm_pal_set 1, $0F00 +xm_sprite_pos 0, 100, 50 instead of a dozen lda/sta lines. This is the
+    ; same idea as the CXRF asmsdk cxm_* layer, adapted to this repo's conventions and generated the same
+    ; way as everything else here (written for ACME; the six ports are produced by tools/acme2*.py -- it
+    ; is NOT in their SKIP set). PURELY ADDITIVE and OPT-IN. Nothing sources this for you; add it
+    ; yourself, once. Each module's macros are wrapped in that module's X16_USE_* gate, so SET YOUR GATES
+    ; FIRST, then source this (before your own code, since the macros must be defined before you invoke
+    ; them): !source "x16.asm" X16_USE_SHAPES_RRECT = 1 ; <- your gates first X16_USE_BITMAP2H = 1 !source
+    ; "core/sugar.asm" ; <- then the (optional) macros ... your program ... !source "x16_code.asm" The
+    ; gating matters: a macro that referenced a routine from a module you did not enable would be a
+    ; dangling symbol under the stricter assemblers (KickAssembler), so xm_pal_set only exists when
+    ; X16_USE_PALETTE is set, and so on. Set a gate to get its macros; the sub-gates (SHAPES_RRECT,
+    ; PCM_STREAM, ...) each gate their own. A program that does not source this file, or does not invoke a
+    ; macro, is byte-for-byte unchanged. Each macro expands to exactly the hand-written argument setup +
+    ; jsr, so it costs nothing at run time, and you still pay only for the modules whose gates you enable
+    ; -- a macro is only "real" when you invoke it and only then needs its routine linked. Conventions
+    ; (mirroring the routine headers): * A macro takes the routine's arguments in their natural order.
+    ; 16-bit things (coordinates, sizes, addresses) are passed whole and split here; bytes (colours,
+    ; radii, angles, voice/sprite numbers) pass through as-is. * Angles are the sin8/cos8 byte convention:
+    ; 0 = east, 64 = south. * Arguments are loaded as IMMEDIATES (lda #arg), so pass constants or
+    ; assemble-time expressions. To call with a value held in a variable, set the argument block by hand
+    ; and jsr the routine directly -- the macro is a convenience for the common constant case, not a
+    ; wrapper you can feed run-time values through. * A "-> " note above a macro says what the routine
+    ; returns (registers / the P block / a carry flag); the macro does not capture it. * Pure no-argument
+    ; arithmetic (i16_add, f_neg, d_sqrt, ...) has no macro -- a wrapper would add nothing, so call it
+    ; directly. The init/on/off/wait style calls are wrapped for a uniform call style. The routines these
+    ; wrap live behind the X16_USE_* gates documented in x16_code.asm; enabling a macro's module is on
+    ; you. video/vera point port 0 (compose the H byte -- bank | DECR | incr<<4 -- yourself)
     sub vera_set_addr0(ubyte l, ubyte m, ubyte h) -> bool {
         %asm {{
         .if BANK_X16_USE_VERA_ADDR
@@ -106,7 +135,7 @@ cx {
         }}
     }
 
-    ; video/vdc  (VERA display composer) -> A = DC_VIDEO
+    ; video/vdc (VERA display composer) -> A = DC_VIDEO
     sub vdc_get_video() -> ubyte {
         %asm {{
         .if BANK_X16_USE_VERA_DC
@@ -713,9 +742,9 @@ cx {
             sta $00
         .endif
             lda p8v_src
-            sta X16_PTR0
+            sta $22
             lda p8v_src+1
-            sta X16_PTR0+1
+            sta $22+1
             lda p8v_first
             ldx p8v_count
             jsr x16src.pal_load
@@ -726,7 +755,7 @@ cx {
         }}
     }
 
-    ; video/tile  (layer config + tilemap cells)
+    ; video/tile (layer config + tilemap cells)
     sub layer_on(ubyte layer) {
         %asm {{
         .if BANK_X16_USE_TILE
@@ -992,7 +1021,8 @@ cx {
         }}
     }
 
-    ; The same call with the address already split, so every argument can be a variable: vbank = address bit 16, vad
+    ; The same call with the address already split, so every argument can be a variable: vbank = address
+    ; bit 16, vaddr = the low 16 bits.
     sub sprite_image_at(ubyte sprite, ubyte vbank, uword vaddr, ubyte mode) {
         %asm {{
         .if BANK_X16_USE_SPRITE
@@ -1075,7 +1105,7 @@ cx {
         }}
     }
 
-    ; gfx/bitmap8l  (320x240 @ 8bpp)
+    ; gfx/bitmap8l (320x240 @ 8bpp)
     sub gfx8l_init() {
         %asm {{
         .if BANK_X16_USE_BITMAP8L
@@ -1321,6 +1351,9 @@ cx {
         }}
     }
 
+    ; Same slot shift as xm_fx_line had: gfx8l_line copies P0..P6 straight into x0/y0/x1/y1/colour, so x1
+    ; belongs in P3/P4, y1 in P5, colour in P6. (gfx8l_pset wants the colour in P3, which is what the old
+    ; order copied.)
     sub gfx8l_line(uword x0, ubyte y0, uword x1, ubyte y1, ubyte col) {
         %asm {{
         .if BANK_X16_USE_BITMAP8L
@@ -1335,13 +1368,13 @@ cx {
             sta $23
             lda p8v_y0
             sta $24
-            lda p8v_col
-            sta $25
             lda p8v_x1
-            sta $26
+            sta $25
             lda p8v_x1+1
-            sta $27
+            sta $26
             lda p8v_y1
+            sta $27
+            lda p8v_col
             sta $28
             jsr x16src.gfx8l_line
         .if BANK_X16_USE_BITMAP8L
@@ -1403,7 +1436,7 @@ cx {
         }}
     }
 
-    ; gfx/bitmap8h  (640x480 @ 8bpp; VERA_2 SDRAM layer)
+    ; gfx/bitmap8h (640x480 @ 8bpp; VERA_2 SDRAM layer)
     sub gfx8h_has() -> bool {
         %asm {{
         .if BANK_X16_USE_BITMAP8H
@@ -1516,9 +1549,9 @@ cx {
             sta $00
         .endif
             lda p8v_src
-            sta X16_PTR0
+            sta $22
             lda p8v_src+1
-            sta X16_PTR0+1
+            sta $22+1
             lda p8v_first
             ldx p8v_count
             jsr x16src.gfx8h_pal_load
@@ -1806,7 +1839,7 @@ cx {
         }}
     }
 
-    ; gfx/bitmap2h  (640x480 @ 2bpp; colour in A)
+    ; gfx/bitmap2h (640x480 @ 2bpp; colour in A)
     sub gfx2h_init() {
         %asm {{
         .if BANK_X16_USE_BITMAP2H
@@ -2102,7 +2135,7 @@ cx {
         }}
     }
 
-    ; gfx/bitmap2l  (320x240 @ 2bpp; colour in A)
+    ; gfx/bitmap2l (320x240 @ 2bpp; colour in A)
     sub gfx2l_init() {
         %asm {{
         .if BANK_X16_USE_BITMAP2L
@@ -2398,7 +2431,7 @@ cx {
         }}
     }
 
-    ; gfx/bitmap4l  (320x240 @ 4bpp)
+    ; gfx/bitmap4l (320x240 @ 4bpp)
     sub gfx4l_init() {
         %asm {{
         .if BANK_X16_USE_BITMAP4L
@@ -2725,7 +2758,7 @@ cx {
         }}
     }
 
-    ; gfx/bitmap4h  (640x480 @ 4bpp; VERA_2 SDRAM layer)
+    ; gfx/bitmap4h (640x480 @ 4bpp; VERA_2 SDRAM layer)
     sub gfx4h_has() -> bool {
         %asm {{
         .if BANK_X16_USE_BITMAP4H
@@ -2838,9 +2871,9 @@ cx {
             sta $00
         .endif
             lda p8v_src
-            sta X16_PTR0
+            sta $22
             lda p8v_src+1
-            sta X16_PTR0+1
+            sta $22+1
             lda p8v_first
             ldx p8v_count
             jsr x16src.gfx4h_pal_load
@@ -3128,7 +3161,7 @@ cx {
         }}
     }
 
-    ; gfx/graph  (KERNAL GRAPH API)
+    ; gfx/graph (KERNAL GRAPH API)
     sub graph_init_default() {
         %asm {{
         .if BANK_X16_USE_GRAPH
@@ -3571,7 +3604,7 @@ cx {
         return retbit
     }
 
-    ; gfx/console  (KERNAL console API)
+    ; gfx/console (KERNAL console API)
     sub con_init_fullscreen() {
         %asm {{
         .if BANK_X16_USE_CONSOLE
@@ -3746,7 +3779,7 @@ cx {
         }}
     }
 
-    ; gfx/fb  (KERNAL framebuffer API)
+    ; gfx/fb (KERNAL framebuffer API)
     sub fb_init() {
         %asm {{
         .if BANK_X16_USE_FB
@@ -4015,7 +4048,7 @@ cx {
         }}
     }
 
-    ; gfx/shapes  (engine-agnostic; bind SHP_* to pick the engine)
+    ; gfx/shapes (engine-agnostic; bind SHP_* to pick the engine)
     sub shape_circle(uword cx_, uword cy_, ubyte r, ubyte col) {
         %asm {{
         .if BANK_X16_USE_SHAPES
@@ -4401,7 +4434,7 @@ cx {
         return retbit
     }
 
-    ; gfx/verafx  (VERA FX; check vera_has_fx first)
+    ; gfx/verafx (VERA FX; check vera_has_fx first)
     sub fx_off() {
         %asm {{
         .if BANK_X16_USE_VERAFX
@@ -4443,8 +4476,11 @@ cx {
         }}
     }
 
-    ; fill `count` bytes with `val` from the current port address
-    sub fx_fill(ubyte val, uword count) {
+    ; fill `count` bytes of VRAM at `addr` with `val`. This took only a value and a count in X/Y and set
+    ; none of the parameter block, so it filled whatever address and length happened to be left in
+    ; X16_P0-P4 by an earlier call. fx_fill wants the 17-bit destination in P0/P1/P2 and the count in
+    ; P3/P4; `^` supplies the bank byte.
+    sub fx_fill(ubyte val, long addr, uword count) {
         %asm {{
         .if BANK_X16_USE_VERAFX_FILL
             lda $00
@@ -4452,9 +4488,17 @@ cx {
             lda #BANK_X16_USE_VERAFX_FILL
             sta $00
         .endif
+            lda p8v_addr
+            sta $22
+            lda p8v_addr+1
+            sta $23
+            lda p8v_addr+2
+            sta $24
+            lda p8v_count
+            sta $25
+            lda p8v_count+1
+            sta $26
             lda p8v_val
-            ldx p8v_count
-            ldy p8v_count+1
             jsr x16src.fx_fill
         .if BANK_X16_USE_VERAFX_FILL
             pla
@@ -4521,6 +4565,9 @@ cx {
         }}
     }
 
+    ; fx_line reads x1 from P3/P4, y1 from P5 and the colour from P6. This put the colour in P3 and
+    ; shifted x1/y1 up a slot, so the target became x1 = col | (x1.lo << 8) and the colour became y1 --
+    ; and fx_line does not clip, so the run walked outside the bitmap.
     sub fx_line(uword x0, ubyte y0, uword x1, ubyte y1, ubyte col) {
         %asm {{
         .if BANK_X16_USE_VERAFX_LINE
@@ -4535,13 +4582,13 @@ cx {
             sta $23
             lda p8v_y0
             sta $24
-            lda p8v_col
-            sta $25
             lda p8v_x1
-            sta $26
+            sta $25
             lda p8v_x1+1
-            sta $27
+            sta $26
             lda p8v_y1
+            sta $27
+            lda p8v_col
             sta $28
             jsr x16src.fx_line
         .if BANK_X16_USE_VERAFX_LINE
@@ -4551,7 +4598,7 @@ cx {
         }}
     }
 
-    ; gfx/verafx_utils  (low-level VERA FX primitives)
+    ; gfx/verafx_utils (low-level VERA FX primitives)
     sub fxu_off() {
         %asm {{
         .if BANK_X16_USE_VERAFX_UTILS
@@ -5373,7 +5420,7 @@ cx {
         }}
     }
 
-    ; audio/ym  (YM2151 FM)
+    ; audio/ym (YM2151 FM)
     sub ym_init() -> bool {
         %asm {{
         .if BANK_X16_USE_YM
@@ -5571,7 +5618,7 @@ cx {
         }}
     }
 
-    ; audio/rom  (full BANK_AUDIO API)
+    ; audio/rom (full BANK_AUDIO API)
     sub ar_audio_init() {
         %asm {{
         .if BANK_X16_USE_AUDIO_ROM
@@ -6668,7 +6715,7 @@ cx {
         }}
     }
 
-    ; audio/zsm  (compact ZSM stream player) -> A = ZSM_ERR_* from the last zsm_init
+    ; audio/zsm (compact ZSM stream player) -> A = ZSM_ERR_* from the last zsm_init
     sub zsm_lasterr() -> ubyte {
         %asm {{
         .if BANK_X16_USE_ZSM
@@ -7462,7 +7509,7 @@ cx {
         return ret8
     }
 
-    ; storage/bank  (banked RAM)
+    ; storage/bank (banked RAM)
     sub bank_set(ubyte bank) {
         %asm {{
         .if BANK_X16_USE_BANK
@@ -7634,7 +7681,7 @@ cx {
         return retbit
     }
 
-    ; storage/mem  (KERNAL block ops; stream to/from VERA_DATA0 too)
+    ; storage/mem (KERNAL block ops; stream to/from VERA_DATA0 too)
     sub mem_fill(uword dst, uword count, ubyte val) {
         %asm {{
         .if BANK_X16_USE_MEM
@@ -8898,7 +8945,8 @@ cx {
         return ret16
     }
 
-    ; -> A = characters copied. Use these from a BANKED filepick: a pointer it returns names storage that travels in
+    ; -> A = characters copied. Use these from a BANKED filepick: a pointer it returns names storage that
+    ; travels into the bank with it.
     sub fp_copy_path(uword dest, ubyte size) -> ubyte {
         %asm {{
         .if BANK_X16_USE_FILEPICK
@@ -9115,7 +9163,9 @@ cx {
         }}
     }
 
-    ; ui/filepick -- the editing half (X16_USE_FILEPICK_EDIT) No routines of its own to call: n/e/d/c/v are handled 
+    ; ui/filepick -- the editing half (X16_USE_FILEPICK_EDIT) No routines of its own to call: n/e/d/c/v
+    ; are handled inside fp_open when the gate is defined. The gate is what you set. storage/dos -> A =
+    ; status code
     sub dos_cmd(uword cmd, ubyte len_) -> ubyte {
         %asm {{
         .if BANK_X16_USE_DOS
@@ -9546,9 +9596,9 @@ cx {
             sta $00
         .endif
             lda p8v_addr
-            sta X16_PTR0
+            sta $22
             lda p8v_addr+1
-            sta X16_PTR0+1
+            sta $22+1
             lda p8v_mask
             jsr x16src.bit_set
         .if BANK_X16_USE_BITS
@@ -9567,9 +9617,9 @@ cx {
             sta $00
         .endif
             lda p8v_addr
-            sta X16_PTR0
+            sta $22
             lda p8v_addr+1
-            sta X16_PTR0+1
+            sta $22+1
             lda p8v_mask
             jsr x16src.bit_clr
         .if BANK_X16_USE_BITS
@@ -9589,9 +9639,9 @@ cx {
             sta $00
         .endif
             lda p8v_addr
-            sta X16_PTR0
+            sta $22
             lda p8v_addr+1
-            sta X16_PTR0+1
+            sta $22+1
             lda p8v_mask
             jsr x16src.bit_test
         .if BANK_X16_USE_BITS
@@ -9808,7 +9858,7 @@ cx {
         return ret16
     }
 
-    ; util/sort  (base pointer + element count; sorts in place)
+    ; util/sort (base pointer + element count; sorts in place)
     sub sort_u8(uword ptr, uword count) {
         %asm {{
         .if BANK_X16_USE_SORT
@@ -10033,7 +10083,7 @@ cx {
         }}
     }
 
-    ; util/int16  (load i16_a / i16_b with +i16_const; ops are argument-free)
+    ; util/int16 (load i16_a / i16_b with +i16_const; ops are argument-free)
     sub i16_from_u8(ubyte byte_) {
         %asm {{
         .if BANK_X16_USE_INT16
@@ -10068,7 +10118,7 @@ cx {
         }}
     }
 
-    ; util/int32  (load i32_a / i32_b with +i32_const)
+    ; util/int32 (load i32_a / i32_b with +i32_const)
     sub i32_from_u16(uword value) {
         %asm {{
         .if BANK_X16_USE_INT32
@@ -10105,7 +10155,7 @@ cx {
         }}
     }
 
-    ; util/float  (FAC is the accumulator; addr = a 5-byte float in memory)
+    ; util/float (FAC is the accumulator; addr = a 5-byte float in memory)
     sub f_from_u8(ubyte byte_) {
         %asm {{
         .if BANK_X16_USE_FLOAT
@@ -10346,7 +10396,7 @@ cx {
         }}
     }
 
-    ; util/double  (d_ac is the accumulator; addr = an 8-byte double in memory)
+    ; util/double (d_ac is the accumulator; addr = an 8-byte double in memory)
     sub d_load(uword addr) {
         %asm {{
         .if BANK_X16_USE_DOUBLE
@@ -10473,7 +10523,7 @@ cx {
         }}
     }
 
-    ; d_ac = d_ac ^ mem  (base ^ exponent)
+    ; d_ac = d_ac ^ mem (base ^ exponent)
     sub d_pow(uword addr) {
         %asm {{
         .if BANK_X16_USE_DOUBLE
@@ -10563,7 +10613,7 @@ cx {
         }}
     }
 
-    ; util/buffers  (ring buffer + byte stack)
+    ; util/buffers (ring buffer + byte stack)
     sub rb_init() {
         %asm {{
         .if BANK_X16_USE_BUFFERS
@@ -10998,7 +11048,7 @@ cx {
         return retbit
     }
 
-    ; comms/spi  (VERA SPI controller) -> A = VERA_SPI_* control/status bits
+    ; comms/spi (VERA SPI controller) -> A = VERA_SPI_* control/status bits
     sub spi_get_ctrl() -> ubyte {
         %asm {{
         .if BANK_X16_USE_VERA_SPI
@@ -12189,7 +12239,9 @@ cx {
         return ret8
     }
 
-    ; Routines that had no friendly macro until now. Most work on their module's accumulator -- FAC, d_ac, i16_a/i16
+    ; Routines that had no friendly macro until now. Most work on their module's accumulator -- FAC, d_ac,
+    ; i16_a/i16_b, i32_a/i32_b, bcd_a/bcd_b, the stack or the queue -- so they take no arguments; the rest
+    ; carry the parameters their own header documents.
     sub f_zero() {
         %asm {{
         .if BANK_X16_USE_FLOAT
@@ -14253,9 +14305,9 @@ cx {
             sta $00
         .endif
             lda p8v_addr
-            sta X16_PTR0
+            sta $22
             lda p8v_addr+1
-            sta X16_PTR0+1
+            sta $22+1
             ldx p8v_set
             lda p8v_mask
             jsr x16src.bit_put
@@ -14653,6 +14705,28 @@ cx {
             sta $00
         .endif
         }}
+    }
+
+    ; ISO: 'a'..'z' (97-122) and the accented smalls
+    sub str_islower_iso(ubyte ch) -> bool {
+        %asm {{
+        .if BANK_X16_USE_STRING_CTYPE
+            lda $00
+            pha
+            lda #BANK_X16_USE_STRING_CTYPE
+            sta $00
+        .endif
+            lda p8v_ch
+            jsr x16src.str_islower_iso
+            lda #0
+            rol  a
+            sta p8v_retbit
+        .if BANK_X16_USE_STRING_CTYPE
+            pla
+            sta $00
+        .endif
+        }}
+        return retbit
     }
 
 }
