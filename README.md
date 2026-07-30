@@ -7,7 +7,7 @@ A [Prog8](https://prog8.readthedocs.io/) wrapper for the
 [X16_Library](../x16_library) — call the library's hand-written 6502 routines
 from Prog8 with typed subroutines, on the Commander X16.
 
-Generated from **X16_Library** at commit `ca9fc4f` (2026-07-30). The library
+Generated from **X16_Library** at commit `5c4602c` (2026-07-30). The library
 carries no version number of its own, so the commit is what identifies a sync.
 
 Every library module is available, and your PRG contains only the ones you
