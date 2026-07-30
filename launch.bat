@@ -32,10 +32,17 @@ if not exist "%HERE%build\desktop.prg" (
 )
 
 rem echo Syncing the build onto %IMG% ...
+rem BANK20.BIN belongs with KALK.PRG and is not optional: kalk calls
+rem load_banks() at startup and jumps into whatever that file holds, so
+rem a copy left over from an older build sends it into the middle of a
+rem routine. It was missing from this list, and went stale the first
+rem time the library changed size.
 python "%HERE%tools\img_put.py" "%IMG%" ^
     --as DESKTOP.PRG "%HERE%build\desktop.prg" ^
     --as KALK.PRG    "%HERE%build\kalk.prg" ^
+    --as BANK20.BIN  "%HERE%build\BANK20.BIN" ^
     --as IMGVIEW.PRG "%HERE%build\imgview.prg" ^
+    --as CHILD.PRG   "%HERE%build\child.prg" ^
     --as /DESKTOP/WALL.BMX  "%HERE%build\WALL.BMX" ^
     --as /DESKTOP/WALLO.BMX "%HERE%build\WALLO.BMX" ^
     --as IMAGE.BMX   "%HERE%build\IMAGE.BMX"
