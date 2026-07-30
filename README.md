@@ -7,7 +7,7 @@ A [Prog8](https://prog8.readthedocs.io/) wrapper for the
 [X16_Library](../x16_library) — call the library's hand-written 6502 routines
 from Prog8 with typed subroutines, on the Commander X16.
 
-Generated from **X16_Library** at commit `6992b4d` (2026-07-30). The library
+Generated from **X16_Library** at commit `ca9fc4f` (2026-07-30). The library
 carries no version number of its own, so the commit is what identifies a sync.
 
 Every library module is available, and your PRG contains only the ones you
@@ -419,22 +419,15 @@ python tools\smoke_wrappers.py X16_USE_STACK   # one gate
 ```
 
 It exits with the number of gates that failed and prints each assembler error.
-Two are known to fail today, both in the library's 64tass port rather than in
-anything generated here (see *Known upstream gaps* below).
+All **89 assemble** as of the sync above.
 
-## Known upstream gaps
-
-The 64tass port carries two constructs 64tass cannot assemble. They only bite
-when the module is actually gated on, which is why the library's own test
-targets pass:
-
-| Where | What |
-|---|---|
-| `src_64tass/gfx/bitmap4h.asm:281` | `++  lda g4h_n` — ACME's second-level anonymous label. 64tass accepts `+` as a *definition* and `++` only as a *reference* ("second following `+`"), so the definition must be a plain `+`. Breaks any build with `X16_USE_BITMAP4H`. |
-| `src_64tass/video/vdc.asm:239` | `_vdc_store_active_t` is a shared tail three sibling routines `jmp` to. In ACME a leading `_` means nothing; in 64tass it makes the label *cheap-local* to the routine above it, so the earlier jumps cannot see it. Breaks any build with `X16_USE_VERA_DC`. |
-
-Until the library fixes them, `cx.gfx4h_*` and `cx.vdc_set_active*` /
-`cx.vdc_fullscreen` cannot be linked.
+The first run of it found two the library could not assemble at all — nothing
+enabled `X16_USE_VERA_DC` or `X16_USE_BITMAP4H` in any of its test targets, so
+`bitmap4h.asm`'s `++` (ACME's second-level anonymous label, which 64tass takes
+only as a *reference*) and `vdc.asm`'s `_vdc_store_active_t` (a leading
+underscore is nothing in ACME, cheap-local in 64tass) had never been through
+64tass. Both are fixed upstream in `ca9fc4f`, at the ACME source where all
+seven ports read them.
 
 ## Tutorial
 

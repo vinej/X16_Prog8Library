@@ -2482,6 +2482,7 @@
 "vdc_set_output": "X16_USE_VERA_DC",
 "vdc_set_scale": "X16_USE_VERA_DC",
 "vdc_set_video": "X16_USE_VERA_DC",
+"vdc_store_active_t": "X16_USE_VERA_DC",
 "vera_copy": "X16_USE_VERA_COPY",
 "vera_fill": "X16_USE_VERA_FILL",
 "vera_has_fx": "X16_USE_VERA_FXPROBE",

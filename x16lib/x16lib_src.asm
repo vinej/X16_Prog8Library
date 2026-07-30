@@ -1555,7 +1555,7 @@ vdc_set_active_raw
     sty X16_T2
     lda r0L
     sta X16_T3
-    jmp _vdc_store_active_t
+    jmp vdc_store_active_t
 
 ; ---------------------------------------------------------------------
 ; vdc_set_active
@@ -1625,7 +1625,7 @@ vdc_set_active
     asl
     ora X16_T3
     sta X16_T3
-    jmp _vdc_store_active_t
+    jmp vdc_store_active_t
 
 ; ---------------------------------------------------------------------
 ; vdc_fullscreen -- active area = 0,0 to 640,480
@@ -1637,9 +1637,13 @@ vdc_fullscreen
     stz X16_T2
     lda #240
     sta X16_T3
-    jmp _vdc_store_active_t
+    jmp vdc_store_active_t
 
-_vdc_store_active_t
+; The shared tail of the three above. Not "_vdc_store_active_t": a
+; leading underscore is nothing in ACME but makes the label cheap-local
+; in 64tass, scoped to whatever routine sits above it -- and the three
+; jmps here come from routines further up, which could not see it.
+vdc_store_active_t
     #vera_dcsel 1
     lda X16_T0
     sta VERA_DC_HSTART
@@ -8165,9 +8169,10 @@ _aligned
     bcc +
     lda #1
     sta g4h_phase               ; remember the trailing odd-width pixel
-    bra ++
-+   stz g4h_phase
-++  lda g4h_n
+    bra _full                   ; named, not '++': ACME's second-level
++   stz g4h_phase               ; anonymous label has no equivalent in
+_full                           ; the ports, which take '+' only
+    lda g4h_n
     ora g4h_n+1
     beq _nofull
     lda #VERA2_INC_1
